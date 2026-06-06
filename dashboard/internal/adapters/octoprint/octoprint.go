@@ -20,12 +20,9 @@ import (
 	"time"
 
 	"github.com/MakerViking/TinkerView/internal/adapter"
+	"github.com/MakerViking/TinkerView/internal/adapters/printerutil"
 	"github.com/MakerViking/TinkerView/internal/bus"
 )
-
-// defaultMinExtrudeTemp guards manual extrusion (mirrors Marlin/Klipper's 170°C
-// cold-extrusion floor) so a cold extrude is refused before the gcode is sent.
-const defaultMinExtrudeTemp = 170
 
 // pollInterval is how often we re-read OctoPrint while running. Short enough for a
 // responsive progress bar, gentle enough for a LAN OctoPrint on a Pi.
@@ -67,7 +64,7 @@ func New(b *bus.Bus, id, name, baseURL, apiKey, camera, uiURL string, managed bo
 		bus: b, id: id, name: name, camera: camera,
 		httpBase: base, uiURL: uiURL, apiKey: apiKey, managed: managed, macros: macros,
 		client:         &http.Client{Timeout: 10 * time.Second},
-		minExtrudeTemp: defaultMinExtrudeTemp,
+		minExtrudeTemp: printerutil.DefaultMinExtrudeTemp,
 	}
 }
 
@@ -258,28 +255,28 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		return p.postJSON(ctx, "/api/printer/command", map[string]any{"commands": []string{"M112"}})
 	case adapter.ActHome:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		return p.postJSON(ctx, "/api/printer/printhead", map[string]any{"command": "home", "axes": homeAxes(a.Axes)})
 	case adapter.ActMove:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		ax := strings.ToLower(a.Axis)
 		if ax != "x" && ax != "y" && ax != "z" {
 			return fmt.Errorf("invalid axis %q", a.Axis)
 		}
-		body := map[string]any{"command": "jog", "absolute": false, "speed": int(clampFeed(a.Feed, ax))}
-		body[ax] = clampAbs(a.Dist, 100)
+		body := map[string]any{"command": "jog", "absolute": false, "speed": int(printerutil.ClampFeed(a.Feed, ax))}
+		body[ax] = printerutil.ClampAbs(a.Dist, 100)
 		return p.postJSON(ctx, "/api/printer/printhead", body)
 	case adapter.ActExtrude:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		if p.nozzleTemp() < p.minExtrudeTemp {
 			return fmt.Errorf("nozzle below %.0f°C — heat it before extruding", p.minExtrudeTemp)
 		}
-		return p.postJSON(ctx, "/api/printer/tool", map[string]any{"command": "extrude", "amount": clampAbs(a.Dist, 100), "speed": int(clampFeed(a.Feed, "e"))})
+		return p.postJSON(ctx, "/api/printer/tool", map[string]any{"command": "extrude", "amount": printerutil.ClampAbs(a.Dist, 100), "speed": int(printerutil.ClampFeed(a.Feed, "e"))})
 	case adapter.ActMacro:
 		if !p.macroAllowed(a.Name) {
 			return fmt.Errorf("macro %q is not in the allowed list", a.Name)
@@ -289,8 +286,6 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		return fmt.Errorf("unsupported action %q", a.Op)
 	}
 }
-
-var errNotIdle = fmt.Errorf("printer must be idle for this action")
 
 func (p *Printer) isIdle() bool {
 	p.mu.Lock()
@@ -307,15 +302,7 @@ func (p *Printer) nozzleTemp() float64 {
 // macroAllowed validates a macro name is in the curated allowlist (exact,
 // case-insensitive) and contains no injection characters or extra tokens.
 func (p *Printer) macroAllowed(name string) bool {
-	if name == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, " \t\n\r;") {
-		return false
-	}
-	for _, m := range p.macros {
-		if strings.EqualFold(m, name) {
-			return true
-		}
-	}
-	return false
+	return printerutil.MacroAllowed(name, p.macros)
 }
 
 // ----- REST plumbing -----
@@ -473,38 +460,4 @@ func homeAxes(axes string) []string {
 		return []string{"x", "y", "z"}
 	}
 	return out
-}
-
-func clamp(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clampAbs(v, max float64) float64 {
-	if v > max {
-		return max
-	}
-	if v < -max {
-		return -max
-	}
-	return v
-}
-
-func clampFeed(feed float64, axis string) float64 {
-	def, max := 3000.0, 6000.0
-	switch strings.ToLower(axis) {
-	case "z":
-		def, max = 600, 1200
-	case "e":
-		def, max = 300, 600
-	}
-	if feed <= 0 {
-		feed = def
-	}
-	return clamp(feed, 60, max)
 }

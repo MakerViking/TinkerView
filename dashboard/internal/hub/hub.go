@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -238,8 +239,8 @@ func (h *Hub) Snapshot() Snapshot {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return Snapshot{
-		Cameras:       cloneCameras(h.cameras),
-		Printers:      clonePrinters(h.printers),
+		Cameras:       maps.Clone(h.cameras),
+		Printers:      maps.Clone(h.printers),
 		Containers:    h.containers,
 		Disks:         h.disks,
 		FrigateOnline: h.frigateOnline,
@@ -449,18 +450,3 @@ func mergeCamera(cur *adapter.CameraState, d adapter.CameraState) {
 	}
 }
 
-func cloneCameras(m map[string]adapter.CameraState) map[string]adapter.CameraState {
-	out := make(map[string]adapter.CameraState, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}
-
-func clonePrinters(m map[string]adapter.PrinterState) map[string]adapter.PrinterState {
-	out := make(map[string]adapter.PrinterState, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
-}

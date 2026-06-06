@@ -157,47 +157,34 @@ func (m *Manager) AddRawAdapter(a adapter.Printer) {
 }
 
 // startLocked builds the adapter for r and launches it on a per-printer child
-// ctx. Caller holds m.mu. Unimplemented kinds persist + show an offline tile.
+// ctx. Caller holds m.mu. Unknown kinds are rejected (validation catches them first).
 func (m *Manager) startLocked(r PrinterRecord) error {
 	if m.parentCtx.Err() != nil {
 		return nil // shutting down; don't start new goroutines after wg.Wait
 	}
 	switch r.Kind {
 	case "moonraker":
-		mp := moonraker.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
-		cctx, cancel := context.WithCancel(m.parentCtx)
-		m.printers[r.ID] = mp
-		m.cancels[r.ID] = cancel
-		m.run("printer:"+r.ID, func(context.Context) { mp.Run(cctx) })
-		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
-		return nil
+		return m.launchLocked(r, moonraker.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros))
 	case "octoprint":
-		op := octoprint.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
-		cctx, cancel := context.WithCancel(m.parentCtx)
-		m.printers[r.ID] = op
-		m.cancels[r.ID] = cancel
-		m.run("printer:"+r.ID, func(context.Context) { op.Run(cctx) })
-		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
-		return nil
+		return m.launchLocked(r, octoprint.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros))
 	case "prusalink":
-		pp := prusalink.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
-		cctx, cancel := context.WithCancel(m.parentCtx)
-		m.printers[r.ID] = pp
-		m.cancels[r.ID] = cancel
-		m.run("printer:"+r.ID, func(context.Context) { pp.Run(cctx) })
-		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
-		return nil
+		return m.launchLocked(r, prusalink.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros))
 	case "bambu":
-		bp := bambu.New(m.bus, r.ID, r.Name, r.IP, r.Serial, r.AccessCode, r.Model, r.Camera, r.UIURL, true, r.Macros)
-		cctx, cancel := context.WithCancel(m.parentCtx)
-		m.printers[r.ID] = bp
-		m.cancels[r.ID] = cancel
-		m.run("printer:"+r.ID, func(context.Context) { bp.Run(cctx) })
-		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "ip", r.IP)
-		return nil
+		return m.launchLocked(r, bambu.New(m.bus, r.ID, r.Name, r.IP, r.Serial, r.AccessCode, r.Model, r.Camera, r.UIURL, true, r.Macros))
 	default:
 		return fmt.Errorf("unknown printer kind %q", r.Kind)
 	}
+}
+
+// launchLocked registers an already-built adapter under a fresh per-printer child
+// ctx and starts its supervised goroutine. Caller holds m.mu.
+func (m *Manager) launchLocked(r PrinterRecord, p adapter.Printer) error {
+	cctx, cancel := context.WithCancel(m.parentCtx)
+	m.printers[r.ID] = p
+	m.cancels[r.ID] = cancel
+	m.run("printer:"+r.ID, func(context.Context) { p.Run(cctx) })
+	slog.Info("printer added", "id", r.ID, "kind", r.Kind)
+	return nil
 }
 
 // stopLocked cancels a printer's ctx (its goroutine exits) and drops it from the

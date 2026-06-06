@@ -19,12 +19,9 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/MakerViking/TinkerView/internal/adapter"
+	"github.com/MakerViking/TinkerView/internal/adapters/printerutil"
 	"github.com/MakerViking/TinkerView/internal/bus"
 )
-
-// defaultMinExtrudeTemp guards manual extrusion (Klipper's own min_extrude_temp
-// default is 170; we mirror it so cold extrusion is refused before the gcode).
-const defaultMinExtrudeTemp = 170
 
 // defaultMacros is the safe set advertised when a printer has no curated macros
 // configured; intersected with the printer's actually-available macros.
@@ -72,7 +69,7 @@ func New(b *bus.Bus, id, name, baseURL, apiKey, camera, uiURL string, managed bo
 		bus: b, id: id, name: name, camera: camera,
 		httpURL: base, wsURL: ws, uiURL: uiURL, apiKey: apiKey, managed: managed, macros: macros,
 		client:         &http.Client{Timeout: 10 * time.Second},
-		minExtrudeTemp: defaultMinExtrudeTemp,
+		minExtrudeTemp: printerutil.DefaultMinExtrudeTemp,
 		dynFans:        map[string]fanVal{},
 	}
 }
@@ -554,17 +551,17 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		if !ok {
 			return fmt.Errorf("unknown fan %q", a.Name)
 		}
-		pct := clamp(a.Pct, 0, 100)
+		pct := printerutil.Clamp(a.Pct, 0, 100)
 		if fc.Kind == "part" {
 			return p.gcode(ctx, fmt.Sprintf("M106 S%.0f", pct/100*255))
 		}
 		return p.gcode(ctx, fmt.Sprintf("SET_FAN_SPEED FAN=%s SPEED=%.2f", fc.Key, pct/100))
 	case adapter.ActSpeed:
-		return p.gcode(ctx, fmt.Sprintf("M220 S%.0f", clamp(a.Pct, 10, 300)))
+		return p.gcode(ctx, fmt.Sprintf("M220 S%.0f", printerutil.Clamp(a.Pct, 10, 300)))
 	case adapter.ActFlow:
-		return p.gcode(ctx, fmt.Sprintf("M221 S%.0f", clamp(a.Pct, 50, 200)))
+		return p.gcode(ctx, fmt.Sprintf("M221 S%.0f", printerutil.Clamp(a.Pct, 50, 200)))
 	case adapter.ActBabystep:
-		return p.gcode(ctx, fmt.Sprintf("SET_GCODE_OFFSET Z_ADJUST=%.3f MOVE=1", clampAbs(a.Dist, 0.5)))
+		return p.gcode(ctx, fmt.Sprintf("SET_GCODE_OFFSET Z_ADJUST=%.3f MOVE=1", printerutil.ClampAbs(a.Dist, 0.5)))
 	case adapter.ActEmergencyStop:
 		return p.post(ctx, "/printer/emergency_stop")
 	case adapter.ActFirmwareRestart:
@@ -573,26 +570,26 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		return p.post(ctx, "/printer/restart")
 	case adapter.ActHome:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
-		return p.gcode(ctx, homeGcode(a.Axes))
+		return p.gcode(ctx, printerutil.HomeGcode(a.Axes))
 	case adapter.ActMove:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		ax := strings.ToUpper(a.Axis)
 		if ax != "X" && ax != "Y" && ax != "Z" {
 			return fmt.Errorf("invalid axis %q", a.Axis)
 		}
-		return p.gcode(ctx, fmt.Sprintf("G91\nG0 %s%.3f F%.0f\nG90", ax, clampAbs(a.Dist, 100), clampFeed(a.Feed, a.Axis)))
+		return p.gcode(ctx, fmt.Sprintf("G91\nG0 %s%.3f F%.0f\nG90", ax, printerutil.ClampAbs(a.Dist, 100), printerutil.ClampFeed(a.Feed, a.Axis)))
 	case adapter.ActExtrude:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		if p.nozzleTemp() < p.minExtrudeTemp {
 			return fmt.Errorf("nozzle below %.0f°C — heat it before extruding", p.minExtrudeTemp)
 		}
-		return p.gcode(ctx, fmt.Sprintf("M83\nG1 E%.3f F%.0f", clampAbs(a.Dist, 100), clampFeed(a.Feed, "e")))
+		return p.gcode(ctx, fmt.Sprintf("M83\nG1 E%.3f F%.0f", printerutil.ClampAbs(a.Dist, 100), printerutil.ClampFeed(a.Feed, "e")))
 	case adapter.ActMacro:
 		if !p.macroAllowed(a.Name) {
 			return fmt.Errorf("macro %q is not in the allowed list", a.Name)
@@ -613,8 +610,6 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		return fmt.Errorf("unsupported action %q", a.Op)
 	}
 }
-
-var errNotIdle = fmt.Errorf("printer must be idle for this action")
 
 func (p *Printer) gcode(ctx context.Context, script string) error {
 	return p.post(ctx, "/printer/gcode/script?script="+url.QueryEscape(script))
@@ -653,17 +648,10 @@ func (p *Printer) fanByKey(key string) (adapter.FanCap, bool) {
 // macroAllowed validates a macro name is in the curated allowlist (exact,
 // case-insensitive) and contains no injection characters or extra tokens.
 func (p *Printer) macroAllowed(name string) bool {
-	if name == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, " \t\n\r;") {
-		return false
-	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, m := range p.caps.Macros {
-		if strings.EqualFold(m, name) {
-			return true
-		}
-	}
-	return false
+	allowed := p.caps.Macros
+	p.mu.Unlock()
+	return printerutil.MacroAllowed(name, allowed)
 }
 
 func (p *Printer) post(ctx context.Context, path string) error {
@@ -723,54 +711,4 @@ func bareName(full string) string {
 		return full[i+1:]
 	}
 	return full
-}
-
-func homeGcode(axes string) string {
-	axes = strings.ToLower(strings.TrimSpace(axes))
-	if axes == "" {
-		return "G28"
-	}
-	var b strings.Builder
-	b.WriteString("G28")
-	for _, c := range axes {
-		if c == 'x' || c == 'y' || c == 'z' {
-			b.WriteByte(' ')
-			b.WriteRune(c - 32) // to upper
-		}
-	}
-	return b.String()
-}
-
-func clamp(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clampAbs(v, max float64) float64 {
-	if v > max {
-		return max
-	}
-	if v < -max {
-		return -max
-	}
-	return v
-}
-
-func clampFeed(feed float64, axis string) float64 {
-	def, max := 3000.0, 6000.0
-	switch strings.ToLower(axis) {
-	case "z":
-		def, max = 600, 1200
-	case "e":
-		def, max = 300, 600
-	}
-	if feed <= 0 {
-		feed = def
-	}
-	return clamp(feed, 60, max)
 }

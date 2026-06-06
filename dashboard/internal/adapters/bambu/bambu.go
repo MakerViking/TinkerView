@@ -24,10 +24,9 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/MakerViking/TinkerView/internal/adapter"
+	"github.com/MakerViking/TinkerView/internal/adapters/printerutil"
 	"github.com/MakerViking/TinkerView/internal/bus"
 )
-
-const defaultMinExtrudeTemp = 170
 
 const devModeMsg = "Enable LAN Mode / Developer Mode on the printer to allow control"
 
@@ -63,7 +62,7 @@ func New(b *bus.Bus, id, name, ip, serial, accessCode, model, camera, uiURL stri
 		bus: b, id: id, name: name, camera: camera, uiURL: uiURL,
 		ip: ip, serial: serial, accessCode: accessCode, model: model,
 		managed: managed, macros: macros, enclosed: modelEnclosed(model),
-		minExtrudeTemp: defaultMinExtrudeTemp,
+		minExtrudeTemp: printerutil.DefaultMinExtrudeTemp,
 		report:         map[string]json.RawMessage{},
 	}
 }
@@ -281,26 +280,26 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 	switch a.Op {
 	case adapter.ActHome:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
-		return p.gcodeLine(ctx, homeGcode(a.Axes))
+		return p.gcodeLine(ctx, printerutil.HomeGcode(a.Axes))
 	case adapter.ActMove:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		ax := strings.ToUpper(a.Axis)
 		if ax != "X" && ax != "Y" && ax != "Z" {
 			return fmt.Errorf("invalid axis %q", a.Axis)
 		}
-		return p.gcodeLine(ctx, fmt.Sprintf("G91\nG0 %s%.3f F%.0f\nG90", ax, clampAbs(a.Dist, 100), clampFeed(a.Feed, a.Axis)))
+		return p.gcodeLine(ctx, fmt.Sprintf("G91\nG0 %s%.3f F%.0f\nG90", ax, printerutil.ClampAbs(a.Dist, 100), printerutil.ClampFeed(a.Feed, a.Axis)))
 	case adapter.ActExtrude:
 		if !p.isIdle() {
-			return errNotIdle
+			return printerutil.ErrNotIdle
 		}
 		if p.nozzleTemp() < p.minExtrudeTemp {
 			return fmt.Errorf("nozzle below %.0f°C — heat it before extruding", p.minExtrudeTemp)
 		}
-		return p.gcodeLine(ctx, fmt.Sprintf("M83\nG1 E%.3f F%.0f", clampAbs(a.Dist, 100), clampFeed(a.Feed, "e")))
+		return p.gcodeLine(ctx, fmt.Sprintf("M83\nG1 E%.3f F%.0f", printerutil.ClampAbs(a.Dist, 100), printerutil.ClampFeed(a.Feed, "e")))
 	case adapter.ActMacro:
 		if !p.macroAllowed(a.Name) {
 			return fmt.Errorf("macro %q is not in the allowed list", a.Name)
@@ -310,8 +309,6 @@ func (p *Printer) Control(ctx context.Context, a adapter.PrinterAction) error {
 		return fmt.Errorf("unsupported action %q", a.Op)
 	}
 }
-
-var errNotIdle = fmt.Errorf("printer must be idle for this action")
 
 func (p *Printer) blocked() bool {
 	p.mu.Lock()
@@ -335,15 +332,7 @@ func (p *Printer) nozzleTemp() float64 {
 // macroAllowed validates a macro name is in the curated allowlist (exact,
 // case-insensitive) and contains no injection characters or extra tokens.
 func (p *Printer) macroAllowed(name string) bool {
-	if name == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, " \t\n\r;") {
-		return false
-	}
-	for _, m := range p.macros {
-		if strings.EqualFold(m, name) {
-			return true
-		}
-	}
-	return false
+	return printerutil.MacroAllowed(name, p.macros)
 }
 
 // ----- MQTT plumbing -----
@@ -441,54 +430,4 @@ func jfloat(m map[string]json.RawMessage, key string) float64 {
 
 func jint(m map[string]json.RawMessage, key string) int {
 	return int(jfloat(m, key))
-}
-
-func homeGcode(axes string) string {
-	axes = strings.ToLower(strings.TrimSpace(axes))
-	if axes == "" {
-		return "G28"
-	}
-	var b strings.Builder
-	b.WriteString("G28")
-	for _, c := range axes {
-		if c == 'x' || c == 'y' || c == 'z' {
-			b.WriteByte(' ')
-			b.WriteRune(c - 32) // to upper
-		}
-	}
-	return b.String()
-}
-
-func clamp(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clampAbs(v, max float64) float64 {
-	if v > max {
-		return max
-	}
-	if v < -max {
-		return -max
-	}
-	return v
-}
-
-func clampFeed(feed float64, axis string) float64 {
-	def, max := 3000.0, 6000.0
-	switch strings.ToLower(axis) {
-	case "z":
-		def, max = 600, 1200
-	case "e":
-		def, max = 300, 600
-	}
-	if feed <= 0 {
-		feed = def
-	}
-	return clamp(feed, 60, max)
 }

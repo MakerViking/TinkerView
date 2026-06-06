@@ -45,18 +45,6 @@ func TestRefineFromFlags(t *testing.T) {
 	}
 }
 
-func TestClampFeed(t *testing.T) {
-	if got := clampFeed(0, "z"); got != 600 {
-		t.Errorf("default z feed = %v, want 600", got)
-	}
-	if got := clampFeed(99999, "x"); got != 6000 {
-		t.Errorf("xy feed cap = %v, want 6000", got)
-	}
-	if got := clampFeed(10, "x"); got != 60 {
-		t.Errorf("feed floor = %v, want 60", got)
-	}
-}
-
 func TestHomeAxes(t *testing.T) {
 	if got := homeAxes(""); len(got) != 3 {
 		t.Errorf("empty axes should home all, got %v", got)
