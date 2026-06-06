@@ -1,0 +1,16 @@
+# OPTIONAL reverse proxy — auth + TLS. ONLY needed if you expose a PUBLIC URL.
+# With Tailscale (recommended) you do NOT need this; reach Frigate over the tailnet.
+#
+# The Frigate UI (5000) and especially go2rtc's UI (1984) are UNAUTHENTICATED by
+# default — never expose them raw to the internet.
+#
+# Generate the password hash with:  docker run --rm caddy caddy hash-password --plaintext 'yourpass'
+# Then run Caddy yourself (host or container) with this file. Not wired into the
+# base compose on purpose, so the default stack stays internal-only.
+
+cam.example.com {
+    basicauth {
+        admin REPLACE_WITH_CADDY_HASH
+    }
+    reverse_proxy 127.0.0.1:5000
+}

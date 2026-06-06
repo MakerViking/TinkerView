@@ -1,0 +1,19 @@
+# === Raspberry Pi preset ====================================================
+# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
+# Pick ONE detector. A Hailo-8/8L AI HAT (Pi 5) or PCIe Coral is strongly
+# recommended; the CPU detector is test-only. Requires a 64-bit OS and gpu_mem>=128.
+# Keep CPU-heavy printer-cam MJPEG->H.264 transcoding OFF the Pi.
+
+detectors:
+  hailo8l:
+    type: hailo8l
+  # --- or Coral PCIe (comment out hailo8l above) ---
+  # coral:
+  #   type: edgetpu
+  #   device: pci
+  # --- or CPU fallback (test-only) ---
+  # cpu1:
+  #   type: cpu
+
+ffmpeg:
+  hwaccel_args: preset-rpi-64-h264     # Pi 5 only: also handles H.265 (/dev/video19)

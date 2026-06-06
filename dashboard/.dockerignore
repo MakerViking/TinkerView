@@ -1,0 +1,6 @@
+web/node_modules
+web/dist
+internal/web/dist
+config.yaml
+*.md
+.git

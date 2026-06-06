@@ -1,0 +1,22 @@
+# === Nvidia preset (YOUR Unraid GTX 1060) ===================================
+# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
+# Decode/encode via NVDEC/NVENC; object detection via ONNX (TensorRT EP).
+# Verify model_type/path against Frigate docs "Object Detectors > ONNX".
+# 3 GB VRAM -> keep input at 320x320 and watch `nvidia-smi`.
+
+detectors:
+  onnx:
+    type: onnx
+
+model:
+  model_type: yolonas
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  # Put a YOLO-NAS ONNX model in ./frigate/model_cache/ (-> /config/model_cache/).
+  path: /config/model_cache/yolo_nas_s.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+ffmpeg:
+  hwaccel_args: preset-nvidia

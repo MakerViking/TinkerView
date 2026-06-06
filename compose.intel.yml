@@ -1,0 +1,13 @@
+# -----------------------------------------------------------------------------
+# Intel iGPU overlay — QuickSync/VAAPI decode + OpenVINO detection on the iGPU.
+# Apply:  docker compose -f docker-compose.yml -f compose.intel.yml up -d
+# Then:   paste frigate/host-presets/intel.yml into frigate/config.yml.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    devices:
+      - /dev/dri:/dev/dri
+    # Some older chips (e.g. J4125) need the legacy iHD/i965 driver:
+    # environment:
+    #   LIBVA_DRIVER_NAME: i965

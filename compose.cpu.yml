@@ -1,0 +1,13 @@
+# -----------------------------------------------------------------------------
+# CPU-only overlay — the safe lowest-common-denominator. NO hardware accel.
+# Boots anywhere so you can SEE the dashboard and verify cameras before adding
+# an accelerator. Software detection (tflite CPU) is TEST-ONLY: limit to 1-2
+# low-fps cameras, and do NOT software-transcode several printer cams here.
+# Apply:  docker compose -f docker-compose.yml -f compose.cpu.yml up -d
+# Then:   paste frigate/host-presets/cpu.yml into frigate/config.yml.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    # No devices, no GPU runtime — intentionally minimal (inherits the base only).
+    restart: unless-stopped

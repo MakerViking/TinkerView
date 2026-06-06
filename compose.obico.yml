@@ -1,0 +1,32 @@
+# -----------------------------------------------------------------------------
+# Obico — print-failure ("spaghetti") detection for the 3D-PRINTER cams.
+# This is intentionally DECOUPLED from Frigate (different model, different job).
+# Do NOT run printer cams through Frigate's person/car detector.
+#
+# IMPORTANT: Obico self-hosted is its own multi-service stack (web + ml_api +
+# tasks + redis + postgres) maintained upstream. The most reliable install is to
+# deploy it from the official project rather than pin image tags here that may
+# drift. See: https://github.com/TheSpaghettiDetective/obico-server  (docs:
+# https://www.obico.io/docs/server-guides/ ).
+#
+# Recommended flow (Phase 7 — optional, do AFTER the Frigate stack works):
+#   1) git clone https://github.com/TheSpaghettiDetective/obico-server
+#   2) Follow its docker-compose setup (it ships a tuned compose with the ML API).
+#   3) In Obico, add each printer and point it at the printer's SNAPSHOT URL
+#      (e.g. http://<printer>/webcam/?action=snapshot). go2rtc also exposes a
+#      stable snapshot at  http://<frigate-host>:1984/api/frame.jpeg?src=printer1
+#   4) Start in NOTIFY-ONLY mode; enable auto-pause only after tuning.
+#
+# The placeholder below documents where the ML API would slot in if you prefer to
+# run only the detector service alongside this stack. Verify the current image
+# name/tag from the upstream compose before enabling — left commented on purpose.
+# -----------------------------------------------------------------------------
+
+# services:
+#   obico-ml-api:
+#     container_name: obico-ml-api
+#     image: <verify-from-upstream-obico-server-compose>
+#     restart: unless-stopped
+#     ports:
+#       - "3333:3333"
+#     # GPU is optional; the ML API runs on CPU for a few printers.

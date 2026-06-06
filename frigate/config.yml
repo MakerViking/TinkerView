@@ -1,0 +1,159 @@
+# =============================================================================
+# Frigate config — restream/fan-out + NVR + detection + WebRTC + Home Assistant
+#
+# How to use this file:
+#   1) Replace the HOST-SPECIFIC block below by pasting your matching preset from
+#      frigate/host-presets/<host>.yml  (nvidia / intel / amd-rocm / cpu / pi).
+#   2) Edit the go2rtc streams and cameras to match YOUR inventory. Two worked
+#      examples are provided: one RTSP security cam, one MJPEG printer cam.
+#      Adding a camera = copy one block.
+#   3) Secrets come from .env via {FRIGATE_RTSP_PASSWORD} substitution.
+#
+# Frigate may add/rewrite a `version:` key on first start — that is expected.
+# =============================================================================
+
+# ======================= HOST-SPECIFIC BLOCK (REPLACE) =======================
+# Default = safe CPU/no-hwaccel so the stack boots ANYWHERE. There is NO CPU
+# fallback for ffmpeg hwaccel and OpenVINO is amd64-only, so do NOT put a GPU
+# preset here unless this exact host has that GPU. Paste from host-presets/.
+detectors:
+  cpu1:
+    type: cpu          # TEST-ONLY. Replace with your host preset for real use.
+# (no global ffmpeg.hwaccel_args by default — safe everywhere)
+# =============================================================================
+
+mqtt:
+  enabled: true
+  # Host networking (Unraid/Pi): 127.0.0.1. Windows/Docker-Desktop bridge: use
+  # host.docker.internal. Point Home Assistant's MQTT integration at the SAME broker.
+  host: 127.0.0.1
+  port: 1883
+
+# --- go2rtc: the restream/fan-out engine (bundled inside Frigate) ------------
+# ONE upstream connection per stream, fanned out to unlimited viewers + WebRTC.
+go2rtc:
+  streams:
+    # ===== SECURITY CAM (RTSP) — native H.264 passthrough, near-zero CPU =====
+    # Stream name MUST match the camera name below (and in Home Assistant).
+    front_door:
+      - rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASSWORD}@192.168.1.50:554/Streaming/Channels/101
+    front_door_sub:
+      - rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASSWORD}@192.168.1.50:554/Streaming/Channels/102
+
+    # ===== PRINTER CAM (MJPEG over HTTP) =====
+    # go2rtc holds the SINGLE upstream socket -> fixes the "one client only" limit.
+    # This entry transcodes MJPEG -> H.264 (#hardware = use the GPU) so it can be
+    # viewed via WebRTC and recorded/detected by Frigate. Confirm the real endpoint
+    # form: Mainsail/Fluidd = /webcam/?action=stream ; raw OctoPi = /?action=stream ;
+    # ustreamer/camera-streamer = /stream . Strip any trailing slash.
+    printer1:
+      - ffmpeg:http://192.168.1.80/webcam/?action=stream#video=h264#hardware
+    # OPTIONAL cheap thumbnail tier (no transcode) for grid tiles / HA snapshots:
+    # printer1_mjpeg:
+    #   - http://192.168.1.80/webcam/?action=stream
+
+    # ===== OPTIONAL: GPU-ENHANCED "<cam>_hq" VARIANT (reusable recipe) =========
+    # A "<cam>_hq" stream gives the dashboard a per-tile HQ toggle (denoise/sharpen/
+    # upscale, encoded on the GPU's NVENC). On-demand: only transcodes while viewed.
+    # Reads from the go2rtc FAN-OUT (not the camera), preserving the single upstream.
+    # REQUIRES the env var GO2RTC_ALLOW_ARBITRARY_EXEC=true (exec sources are off by
+    # default for security). Output to a stdout MPEG-TS pipe (-f mpegts -) — do NOT
+    # use "-f rtsp {output}", Frigate's {}-substitution breaks it. Use the right
+    # ffmpeg path for your Frigate build (e.g. /usr/lib/ffmpeg/7.0/bin/ffmpeg).
+    # Tunables: hqdn3d=denoise, unsharp=sharpen; for a LOW-RES cam prepend an
+    # upscale, e.g. scale=1920:1080:flags=lanczos. (minterpolate/fps is too slow at
+    # 1080p — only worth it for genuinely low-fps/low-res sources.)
+    # printer1_hq:
+    #   - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel error -i http://127.0.0.1:1984/api/stream.mjpeg?src=printer1 -vf hqdn3d=2:1:2:2,unsharp=5:5:0.8:5:5:0.0 -c:v h264_nvenc -preset p4 -b:v 6M -g 60 -bf 0 -f mpegts -"
+
+  # --- WebRTC: only needed on BRIDGE networking (Windows). On host networking
+  # (Unraid/Pi) leave commented; go2rtc finds the candidate automatically.
+  # webrtc:
+  #   candidates:
+  #     - {FRIGATE_HOST_LAN_IP}:8555
+  #     - stun:8555
+  # --- IPv6/dual-stack ISPs: uncomment to stop broken STUN candidates breaking LAN WebRTC
+  # webrtc:
+  #   listen: ":8555"
+  #   ice_servers: []
+
+# --- Global defaults applied to every camera --------------------------------
+detect:
+  enabled: false        # off globally; turned on per-camera (security cams only)
+record:
+  enabled: true
+  retain:
+    days: 3             # continuous footage kept this long
+    mode: motion        # continuous | motion | active_objects
+  alerts:
+    retain:
+      days: 14          # clips tied to alerts kept longer
+  detections:
+    retain:
+      days: 14
+snapshots:
+  enabled: true
+  retain:
+    default: 14
+
+# --- Cameras -----------------------------------------------------------------
+cameras:
+
+  # ============================ SECURITY CAM ============================
+  # High-res 'record' input + low-res H.264 'detect' substream (cheap inference).
+  # Force the camera to H.264 + AAC; avoid H.265 / "+"/smart codecs for live view.
+  front_door:
+    enabled: true
+    ffmpeg:
+      output_args:
+        record: preset-record-generic-audio-copy
+      inputs:
+        - path: rtsp://127.0.0.1:8554/front_door        # from go2rtc restream
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/front_door_sub    # low-res substream
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      enabled: true       # real person/car detection here
+      width: 1280
+      height: 720
+      fps: 5
+    objects:
+      track:
+        - person
+        - car
+    # 'live' tells the UI which restream to use for low-latency viewing.
+    live:
+      stream_name: front_door
+
+  # ============================ PRINTER CAM ============================
+  # NO Frigate object detection (person/car is meaningless on a print bed).
+  # Print-failure detection is Obico's job (see compose.obico.yml).
+  printer1:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/printer1          # the H.264 transcode
+          input_args: preset-rtsp-restream
+          roles:
+            - detect      # Frigate requires a detect-role input even if detection is off
+            - record
+    detect:
+      enabled: false
+    record:
+      enabled: true
+      retain:
+        days: 2
+        mode: all         # printers: keep continuous so you can review a whole print
+    snapshots:
+      enabled: false
+    live:
+      stream_name: printer1
+
+# --- Optional UI niceties ----------------------------------------------------
+# birdseye:
+#   enabled: true
+#   mode: continuous

@@ -1,0 +1,119 @@
+# =============================================================================
+# TinkerView — base stack (Frigate + Mosquitto)
+#
+# Frigate bundles go2rtc. go2rtc opens ONE upstream connection per camera and
+# fans it out to unlimited viewers — this is the fix for cameras that allow only
+# one client at a time. Frigate adds the dashboard grid, NVR recording, object
+# detection, low-latency WebRTC, and the Home Assistant integration.
+#
+# This base file is HOST-AGNOSTIC. Pick exactly ONE host overlay and run:
+#   docker compose -f docker-compose.yml -f compose.nvidia.yml up -d   # your Unraid (GTX 1060)
+#   docker compose -f docker-compose.yml -f compose.intel.yml  up -d   # Intel iGPU box
+#   docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d # AMD GPU box
+#   docker compose -f docker-compose.yml -f compose.cpu.yml    up -d   # safe CPU-only fallback
+#   docker compose -f docker-compose.yml -f compose.pi.yml     up -d   # Raspberry Pi (arm64)
+#   docker compose -f docker-compose.yml -f compose.windows.yml up -d  # Windows / Docker Desktop
+#
+# Then paste the matching frigate/host-presets/<host>.yml into the HOST-SPECIFIC
+# block at the top of frigate/config.yml. See README.md.
+# =============================================================================
+
+services:
+  frigate:
+    container_name: frigate
+    # Pinned for reproducibility. VERIFY the current stable tag at
+    # https://github.com/blakeblackshear/frigate/releases and override in .env.
+    image: ${FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:0.17.1}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # Host networking is required for low-latency WebRTC (port 8555 TCP+UDP) and
+    # for ONVIF camera autodiscovery. Overridden by compose.windows.yml.
+    network_mode: host
+    # Pass FRIGATE_* secrets (RTSP creds, etc.) into the container so Frigate can
+    # substitute them in config.yml via the {FRIGATE_RTSP_PASSWORD} syntax.
+    env_file: .env
+    # Shared memory for decoded frames. Raise as you add cameras (see Frigate docs).
+    shm_size: ${FRIGATE_SHM_SIZE:-256mb}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      # Map the ENTIRE config folder (Unraid gotcha) — not just config.yml — so
+      # Frigate can write its DB, model cache, and migrated config.
+      - ./frigate:/config
+      # Recordings / snapshots / clips. Point STORAGE_PATH at a real disk/array.
+      - ${STORAGE_PATH:-./storage/frigate}:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000
+
+  mqtt:
+    container_name: mosquitto
+    image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto:2.0.22}
+    restart: unless-stopped
+    # Frigate (host network) reaches the broker at 127.0.0.1:1883 via this mapping.
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+
+  # --- Control dashboard (single Go binary serving the React SPA) -------------
+  # One pane for cameras + printers + container health + alerts. Reached over the
+  # tailnet at http://<host>:8088. Copy dashboard/config.example.yaml ->
+  # dashboard/config.yaml and fill in your printers before starting.
+  dashboard:
+    container_name: dashboard
+    image: ${DASHBOARD_IMAGE:-tinkerview:latest}
+    build: ./dashboard
+    restart: unless-stopped
+    network_mode: host # reach Frigate :5000/:1984, Mosquitto :1883, dockerproxy :2375, printers on LAN
+    env_file: .env
+    environment:
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://127.0.0.1:2375}
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://127.0.0.1:8092}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+    volumes:
+      - ./dashboard/config.yaml:/config.yaml:ro
+      # Writable store for UI-added printers/cameras (devices.yaml) + Frigate
+      # config backups. config.yaml stays read-only; this is the only writable
+      # mount. The container runs as distroless :nonroot (uid 65532), so the host
+      # dir must be writable by that uid — create it before first start:
+      #   mkdir -p ./dashboard/data && chown 65532:65532 ./dashboard/data
+      - ./dashboard/data:/data
+      - ${STORAGE_PATH:-./storage/frigate}:/media/frigate:ro # disk usage of the recordings volume
+    depends_on: [frigate, mqtt, dockerproxy]
+
+  # --- ntfy (self-hosted push notifications) ----------------------------------
+  # Create a publish token for the dashboard and a subscribe token for your phone:
+  #   docker exec -it ntfy ntfy user add --role=admin admin   (then `ntfy token add admin`)
+  ntfy:
+    container_name: ntfy
+    image: ${NTFY_IMAGE:-binwiederhier/ntfy:v2.11.0}
+    command: serve
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      NTFY_LISTEN_HTTP: ":8092"
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://127.0.0.1:8092}
+      NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: deny-all
+      NTFY_UPSTREAM_BASE_URL: https://ntfy.sh # relays a content-free poll so iOS gets instant push
+    volumes:
+      - ./ntfy:/var/lib/ntfy
+
+  # --- docker-socket-proxy (least-privilege Docker access for health/restart) -
+  # The dashboard talks to THIS, never the raw socket. Only container list/stats
+  # and restart (POST) are granted.
+  dockerproxy:
+    container_name: docker-socket-proxy
+    image: ${DOCKERPROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1 # list/inspect/stats
+      POST: 1 # allow the restart POST (and nothing else mutating)
+    ports:
+      - "127.0.0.1:2375:2375" # loopback only; dashboard reaches it via host networking
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro

@@ -1,0 +1,19 @@
+# === AMD GPU (ROCm) preset ==================================================
+# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
+# Requires the -rocm image (see compose.amd-rocm.yml). VAAPI decode + ROCm detect.
+
+detectors:
+  rocm:
+    type: rocm
+
+model:
+  model_type: yolonas
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolo_nas_s.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi

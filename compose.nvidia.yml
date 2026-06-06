@@ -1,0 +1,26 @@
+# -----------------------------------------------------------------------------
+# Nvidia GPU overlay — YOUR Unraid host (GTX 1060): NVDEC decode, NVENC transcode
+# for the printer-cam MJPEG->H.264 path, and ONNX/TensorRT object detection.
+#
+# Requires the Unraid "Nvidia Driver" plugin (or nvidia-container-toolkit on Linux).
+# Apply:  docker compose -f docker-compose.yml -f compose.nvidia.yml up -d
+# Then:   paste frigate/host-presets/nvidia.yml into frigate/config.yml.
+#
+# NOTE: 3 GB VRAM is tight — keep the detect model small (320x320) and the number
+# of decode streams modest; watch VRAM with `nvidia-smi`.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    # Alternative to `runtime: nvidia` on newer Compose / CDI setups:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

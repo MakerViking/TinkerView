@@ -1,0 +1,8 @@
+# === CPU-only preset (safe fallback) ========================================
+# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
+# This is the DEFAULT already in config.yml. Frigate's bundled CPU model is used
+# automatically. TEST-ONLY: keep detection to 1-2 low-fps cameras. No hwaccel.
+
+detectors:
+  cpu1:
+    type: cpu

@@ -1,0 +1,61 @@
+# Copy to dashboard/config.yaml and edit. config.yaml is gitignored.
+# The dashboard runs on the host network, so 127.0.0.1 reaches Frigate, go2rtc,
+# Mosquitto, the docker-socket-proxy, and ntfy. Printers are reached on the LAN.
+
+listen: ":8088"
+
+auth:
+  # Empty = open on the tailnet (Tailscale is the perimeter). Set a shared token
+  # to require it on the REST API + WS handshake + ntfy lock-screen action buttons.
+  token: "${DASHBOARD_TOKEN}"
+
+frigate:
+  base_url: "http://127.0.0.1:5000" # unauthenticated internal API (tailnet-only)
+  mqtt_addr: "tcp://127.0.0.1:1883" # anonymous broker (matches mosquitto.conf)
+  topic_prefix: "frigate"
+  media_path: "/media/frigate" # mounted read-only for disk usage
+
+go2rtc_url: "http://127.0.0.1:1984" # reverse-proxied for live tiles
+
+# Writable dir (mounted rw in compose) for UI-managed devices + Frigate backups.
+data_dir: "/data"
+# When true, UI-added MJPEG/raw cameras are transcoded to H.264 on the GPU
+# (go2rtc #hardware). Set true only on hosts with a usable encoder (e.g. NVENC).
+hardware_transcode: false
+
+docker:
+  enabled: true
+  host: "tcp://127.0.0.1:2375" # the docker-socket-proxy endpoint (NOT the raw socket)
+  watch: [frigate, mosquitto, dashboard, ntfy, docker-socket-proxy]
+
+ntfy:
+  base_url: "http://127.0.0.1:8092"
+  topic: "homelab-CHANGE-ME" # pick an unguessable topic name
+  token: "${NTFY_TOKEN}" # publish token created in ntfy
+
+printers:
+  # --- Klipper / Moonraker (Mainsail/Fluidd) ---
+  - id: voron
+    kind: moonraker
+    name: "Voron 2.4"
+    base_url: "http://192.168.1.21:7125"
+    camera: printer1 # go2rtc stream name (optional) to show its cam in the panel
+  # --- OctoPrint ---
+  - id: ender
+    kind: octoprint
+    name: "Ender 3"
+    base_url: "http://192.168.1.22"
+    api_key: "CHANGE-ME-OCTOPRINT-APP-KEY"
+  # --- Bambu Lab (LAN mode) ---
+  - id: x1c
+    kind: bambu
+    name: "X1C"
+    ip: "192.168.1.23"
+    serial: "01PXXXXXXXXXXXX"
+    access_code: "12345678" # LAN Access Code from the printer screen
+    model: x1c # x1 | x1c | p1s | p1p | a1 | a1mini
+
+quick_links:
+  - { name: "Frigate", url: "http://unraid.tailnet.ts.net:5000" }
+  - { name: "go2rtc", url: "http://unraid.tailnet.ts.net:1984" }
+  - { name: "Mainsail", url: "http://192.168.1.21" }

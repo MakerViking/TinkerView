@@ -1,0 +1,262 @@
+package devices
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/MakerViking/TinkerView/internal/adapter"
+	"github.com/MakerViking/TinkerView/internal/adapters/moonraker"
+	"github.com/MakerViking/TinkerView/internal/bus"
+)
+
+// RunFn launches fn on a supervised goroutine (main supplies its WaitGroup +
+// panic-recovery wrapper). The Manager ignores the ctx passed to fn and uses a
+// per-printer child ctx instead, so each adapter can be cancelled independently
+// while still draining on shutdown.
+type RunFn func(name string, fn func(context.Context))
+
+// Manager owns the live printer adapters and their per-printer cancel funcs, and
+// persists UI changes to the Store. It is the single writer of the live maps.
+type Manager struct {
+	bus       *bus.Bus
+	store     *Store
+	run       RunFn
+	parentCtx context.Context
+
+	mu       sync.Mutex
+	printers map[string]adapter.Printer
+	cancels  map[string]context.CancelFunc
+}
+
+// NewManager builds a Manager. parentCtx is the process root context; every
+// printer goroutine derives a child from it, so the existing stop()/wg.Wait()
+// shutdown drains runtime-added printers too.
+func NewManager(parentCtx context.Context, b *bus.Bus, store *Store, run RunFn) *Manager {
+	return &Manager{
+		bus: b, store: store, run: run, parentCtx: parentCtx,
+		printers: map[string]adapter.Printer{},
+		cancels:  map[string]context.CancelFunc{},
+	}
+}
+
+// RestorePrinter starts a printer that is already persisted (startup path). It
+// skips re-persisting and tolerates an already-known id (logs + skips).
+func (m *Manager) RestorePrinter(r PrinterRecord) error {
+	if err := ValidatePrinter(r); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.printers[r.ID]; exists {
+		return fmt.Errorf("printer %q already running", r.ID)
+	}
+	return m.startLocked(r)
+}
+
+// AddPrinter validates, persists, then starts a new printer. Persist-before-start
+// means a save failure aborts cleanly with no orphaned goroutine.
+func (m *Manager) AddPrinter(r PrinterRecord) error {
+	if err := ValidatePrinter(r); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.printers[r.ID]; exists {
+		return fmt.Errorf("a printer with id %q already exists", r.ID)
+	}
+	if err := m.store.UpsertPrinter(r); err != nil {
+		return fmt.Errorf("save printer: %w", err)
+	}
+	return m.startLocked(r)
+}
+
+// EditPrinter re-initialises an existing printer in place (id is immutable).
+// Blank connection/secret fields keep their stored value, so an edit form need
+// not re-send (or expose) the API key / Bambu credentials to change just a name.
+func (m *Manager) EditPrinter(id string, r PrinterRecord) error {
+	r.ID = id
+	if existing, ok := m.store.Printer(id); ok {
+		if r.BaseURL == "" {
+			r.BaseURL = existing.BaseURL
+		}
+		if r.APIKey == "" {
+			r.APIKey = existing.APIKey
+		}
+		if r.IP == "" {
+			r.IP = existing.IP
+		}
+		if r.Serial == "" {
+			r.Serial = existing.Serial
+		}
+		if r.AccessCode == "" {
+			r.AccessCode = existing.AccessCode
+		}
+		if r.Model == "" {
+			r.Model = existing.Model
+		}
+		if r.Macros == nil {
+			r.Macros = existing.Macros
+		}
+	}
+	if err := ValidatePrinter(r); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.printers[id]; !ok {
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	if err := m.store.UpsertPrinter(r); err != nil {
+		return fmt.Errorf("save printer: %w", err)
+	}
+	m.stopLocked(id)        // old adapter goroutine exits on ctx cancel
+	return m.startLocked(r) // start fresh with the new config
+}
+
+// RemovePrinter stops the adapter, removes it from the store, and tells clients
+// to drop the tile. Persist-before-stop means a save failure leaves it running.
+func (m *Manager) RemovePrinter(id string) error {
+	m.mu.Lock()
+	if _, ok := m.printers[id]; !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	if _, err := m.store.DeletePrinter(id); err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("save printer store: %w", err)
+	}
+	m.stopLocked(id)
+	m.mu.Unlock()
+	// Publish the delete outside the lock (keeps "no external calls under m.mu").
+	m.bus.Publish(bus.Event{
+		Source: bus.SourcePrinter, Kind: bus.KindPrinterState, ID: id, Ts: time.Now(),
+		Payload: adapter.PrinterState{ID: id, Deleted: true},
+	})
+	return nil
+}
+
+// AddRawAdapter registers an already-built adapter (used for the demo printer).
+// It is not persisted. Caller must not hold m.mu.
+func (m *Manager) AddRawAdapter(a adapter.Printer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id := a.ID()
+	if _, exists := m.printers[id]; exists {
+		return
+	}
+	cctx, cancel := context.WithCancel(m.parentCtx)
+	m.printers[id] = a
+	m.cancels[id] = cancel
+	m.run("printer:"+id, func(context.Context) { a.Run(cctx) })
+}
+
+// startLocked builds the adapter for r and launches it on a per-printer child
+// ctx. Caller holds m.mu. Unimplemented kinds persist + show an offline tile.
+func (m *Manager) startLocked(r PrinterRecord) error {
+	if m.parentCtx.Err() != nil {
+		return nil // shutting down; don't start new goroutines after wg.Wait
+	}
+	switch r.Kind {
+	case "moonraker":
+		mp := moonraker.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
+		cctx, cancel := context.WithCancel(m.parentCtx)
+		m.printers[r.ID] = mp
+		m.cancels[r.ID] = cancel
+		m.run("printer:"+r.ID, func(context.Context) { mp.Run(cctx) })
+		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
+		return nil
+	case "octoprint", "bambu":
+		// Persisted but no adapter yet: register a placeholder so the tile shows as
+		// configured-but-unsupported (and stays editable/removable). A no-op cancel
+		// keeps stop/edit/remove uniform.
+		m.printers[r.ID] = &stubPrinter{id: r.ID, kind: r.Kind, name: r.Name}
+		m.cancels[r.ID] = func() {}
+		m.bus.Publish(bus.Event{
+			Source: bus.SourcePrinter, Kind: bus.KindPrinterState, ID: r.ID, Ts: time.Now(),
+			Payload: adapter.PrinterState{
+				ID: r.ID, Kind: r.Kind, Name: r.Name, Managed: true,
+				Online: false, State: adapter.Offline,
+				Message: r.Kind + " adapter not implemented yet",
+			},
+		})
+		slog.Warn("printer kind not implemented; saved but inactive", "id", r.ID, "kind", r.Kind)
+		return nil
+	default:
+		return fmt.Errorf("unknown printer kind %q", r.Kind)
+	}
+}
+
+// stopLocked cancels a printer's ctx (its goroutine exits) and drops it from the
+// live maps. Caller holds m.mu.
+func (m *Manager) stopLocked(id string) {
+	if cancel, ok := m.cancels[id]; ok {
+		cancel()
+		delete(m.cancels, id)
+	}
+	delete(m.printers, id)
+}
+
+// ----- hub.CommandHandler (printer portion) -----
+
+func (m *Manager) PrinterCommand(ctx context.Context, id string, cmd adapter.PrinterCommand) error {
+	m.mu.Lock()
+	p, ok := m.printers[id]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	return p.Command(ctx, cmd) // network I/O outside the lock
+}
+
+func (m *Manager) PrinterSetTemp(ctx context.Context, id, heater string, target float64) error {
+	m.mu.Lock()
+	p, ok := m.printers[id]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	return p.SetTemp(ctx, heater, target)
+}
+
+func (m *Manager) PrinterControl(ctx context.Context, id string, a adapter.PrinterAction) error {
+	m.mu.Lock()
+	p, ok := m.printers[id]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	return p.Control(ctx, a)
+}
+
+// PrinterTarget returns a printer's Moonraker base URL + API key for the read-only
+// browse proxy. Reads the store (works even while an adapter is reconnecting).
+// Implements web.TargetResolver.
+func (m *Manager) PrinterTarget(id string) (baseURL, apiKey string, ok bool) {
+	r, found := m.store.Printer(id)
+	if !found || r.Kind != "moonraker" {
+		return "", "", false
+	}
+	return r.BaseURL, r.APIKey, true
+}
+
+// stubPrinter is an inert adapter.Printer for not-yet-supported kinds.
+type stubPrinter struct{ id, kind, name string }
+
+func (s *stubPrinter) ID() string   { return s.id }
+func (s *stubPrinter) Kind() string { return s.kind }
+func (s *stubPrinter) Snapshot() adapter.PrinterState {
+	return adapter.PrinterState{ID: s.id, Kind: s.kind, Name: s.name, Managed: true, State: adapter.Offline}
+}
+func (s *stubPrinter) Run(context.Context) {}
+func (s *stubPrinter) Command(context.Context, adapter.PrinterCommand) error {
+	return fmt.Errorf("%s control not implemented yet", s.kind)
+}
+func (s *stubPrinter) SetTemp(context.Context, string, float64) error {
+	return fmt.Errorf("%s control not implemented yet", s.kind)
+}
+func (s *stubPrinter) Control(context.Context, adapter.PrinterAction) error {
+	return fmt.Errorf("%s control not implemented yet", s.kind)
+}

@@ -1,0 +1,20 @@
+# === Intel iGPU preset ======================================================
+# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
+# OpenVINO detection on the iGPU + VAAPI/QSV decode. The OpenVINO model below
+# ships INSIDE the Frigate image, so no download is needed.
+
+detectors:
+  ov:
+    type: openvino
+    device: GPU
+
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi          # gen10+/Arc: preset-intel-qsv-h264 (and -h265)

@@ -1,0 +1,38 @@
+# --- secrets / per-host config (templates *.example.* ARE committed) ---
+.env
+dashboard/config.yaml
+dashboard/data/
+
+# --- personal working notes + local dev scaffolding (contain real LAN IPs) ---
+handoff.md
+dashboard/dev/
+
+# --- build artifacts ---
+dashboard/web/node_modules/
+dashboard/web/dist/
+dashboard/bin/
+# The placeholder dashboard/internal/web/dist/index.html IS committed (keeps the Go
+# build working); only the real Vite output (assets/) is generated + ignored.
+dashboard/internal/web/dist/assets/
+
+# --- Frigate runtime data + generated files ---
+frigate/*.db
+frigate/*.db-shm
+frigate/*.db-wal
+frigate/model_cache/
+frigate/.exports/
+frigate/clips/
+frigate/go2rtc_homekit.yml
+frigate/backup_config.yaml
+frigate/*.bak
+
+# --- recordings / media ---
+storage/
+
+# --- mqtt runtime ---
+mosquitto/data/
+mosquitto/log/
+
+# --- tooling / misc ---
+.playwright-mcp/
+*.log

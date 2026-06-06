@@ -1,0 +1,18 @@
+# -----------------------------------------------------------------------------
+# Raspberry Pi (arm64) overlay. The :0.17.1 image is multi-arch, so the SAME tag
+# runs here. Best used as a detection/live-view/fan-out node — keep the CPU-heavy
+# printer-cam MJPEG->H.264 transcode OFF the Pi (do it on the strong host).
+#
+# Pi 4 has NO H.265 hardware decode (only Pi 5 does) — force H.264 substreams.
+# Apply:  docker compose -f docker-compose.yml -f compose.pi.yml up -d
+# Then:   paste frigate/host-presets/pi.yml into frigate/config.yml.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    devices:
+      - /dev/dri:/dev/dri          # VideoCore decode
+      # --- Detection accelerator: uncomment the one you have ---
+      # - /dev/hailo0:/dev/hailo0  # Hailo-8/8L AI HAT (Pi 5)
+      # - /dev/apex_0:/dev/apex_0  # Coral PCIe (M.2/Mini-PCIe)
+      # - /dev/bus/usb:/dev/bus/usb # Coral USB (less reliable than PCIe)

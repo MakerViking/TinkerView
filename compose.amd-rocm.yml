@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# AMD GPU overlay — VAAPI decode + ROCm object detection.
+# Uses the Frigate ROCm image variant (note the -rocm tag).
+# Apply:  docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d
+# Then:   paste frigate/host-presets/amd-rocm.yml into frigate/config.yml.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    image: ${FRIGATE_IMAGE_ROCM:-ghcr.io/blakeblackshear/frigate:0.17.1-rocm}
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    security_opt:
+      - seccomp:unconfined
+    # Set to your GPU's GFX version if ROCm misdetects it (e.g. 10.3.0, 11.0.0):
+    # environment:
+    #   HSA_OVERRIDE_GFX_VERSION: "10.3.0"
