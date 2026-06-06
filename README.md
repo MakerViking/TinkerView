@@ -61,6 +61,29 @@ Open the UI: `http://<host>:5000` (Frigate) and `http://<host>:1984` (go2rtc, pe
 
 ---
 
+## Updating
+
+Your config + data are **not** in the repo (gitignored / in Docker volumes), so an
+update never touches your settings or recordings.
+
+**Build-from-source (works everywhere, incl. arm64/Pi):**
+```bash
+git pull
+docker compose -f docker-compose.yml -f compose.<host>.yml up -d --build dashboard
+```
+
+**Prebuilt image (no local build) —** the `release` workflow publishes a multi-arch
+image (`amd64` + `arm64`) to `ghcr.io/makerviking/tinkerview` on each `v*` tag. Point
+the dashboard at it and pull:
+```bash
+echo 'DASHBOARD_IMAGE=ghcr.io/makerviking/tinkerview:latest' >> .env
+docker compose -f docker-compose.yml -f compose.<host>.yml pull dashboard
+docker compose -f docker-compose.yml -f compose.<host>.yml up -d dashboard
+```
+The running version shows in the dashboard header (and at `GET /api/version`).
+
+---
+
 ## Step 0 — Camera inventory & codec prep (do this first)
 
 1. List every camera URL:
