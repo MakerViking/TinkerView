@@ -68,7 +68,7 @@ export interface HostLoad {
 
 export interface PrinterState {
   id: string
-  kind: 'moonraker' | 'octoprint' | 'bambu'
+  kind: 'moonraker' | 'octoprint' | 'prusalink' | 'bambu'
   name: string
   online: boolean
   state: PState
@@ -131,7 +131,7 @@ export interface CameraState {
 }
 
 // PrinterInput mirrors the Go devices.PrinterRecord JSON shape (add/edit forms).
-export type PrinterKind = 'moonraker' | 'octoprint' | 'bambu'
+export type PrinterKind = 'moonraker' | 'octoprint' | 'prusalink' | 'bambu'
 export interface PrinterInput {
   id: string
   kind: PrinterKind

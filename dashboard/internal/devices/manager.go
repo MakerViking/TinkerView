@@ -8,7 +8,10 @@ import (
 	"time"
 
 	"github.com/MakerViking/TinkerView/internal/adapter"
+	"github.com/MakerViking/TinkerView/internal/adapters/bambu"
 	"github.com/MakerViking/TinkerView/internal/adapters/moonraker"
+	"github.com/MakerViking/TinkerView/internal/adapters/octoprint"
+	"github.com/MakerViking/TinkerView/internal/adapters/prusalink"
 	"github.com/MakerViking/TinkerView/internal/bus"
 )
 
@@ -168,21 +171,29 @@ func (m *Manager) startLocked(r PrinterRecord) error {
 		m.run("printer:"+r.ID, func(context.Context) { mp.Run(cctx) })
 		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
 		return nil
-	case "octoprint", "bambu":
-		// Persisted but no adapter yet: register a placeholder so the tile shows as
-		// configured-but-unsupported (and stays editable/removable). A no-op cancel
-		// keeps stop/edit/remove uniform.
-		m.printers[r.ID] = &stubPrinter{id: r.ID, kind: r.Kind, name: r.Name}
-		m.cancels[r.ID] = func() {}
-		m.bus.Publish(bus.Event{
-			Source: bus.SourcePrinter, Kind: bus.KindPrinterState, ID: r.ID, Ts: time.Now(),
-			Payload: adapter.PrinterState{
-				ID: r.ID, Kind: r.Kind, Name: r.Name, Managed: true,
-				Online: false, State: adapter.Offline,
-				Message: r.Kind + " adapter not implemented yet",
-			},
-		})
-		slog.Warn("printer kind not implemented; saved but inactive", "id", r.ID, "kind", r.Kind)
+	case "octoprint":
+		op := octoprint.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
+		cctx, cancel := context.WithCancel(m.parentCtx)
+		m.printers[r.ID] = op
+		m.cancels[r.ID] = cancel
+		m.run("printer:"+r.ID, func(context.Context) { op.Run(cctx) })
+		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
+		return nil
+	case "prusalink":
+		pp := prusalink.New(m.bus, r.ID, r.Name, r.BaseURL, r.APIKey, r.Camera, r.UIURL, true, r.Macros)
+		cctx, cancel := context.WithCancel(m.parentCtx)
+		m.printers[r.ID] = pp
+		m.cancels[r.ID] = cancel
+		m.run("printer:"+r.ID, func(context.Context) { pp.Run(cctx) })
+		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "url", r.BaseURL)
+		return nil
+	case "bambu":
+		bp := bambu.New(m.bus, r.ID, r.Name, r.IP, r.Serial, r.AccessCode, r.Model, r.Camera, r.UIURL, true, r.Macros)
+		cctx, cancel := context.WithCancel(m.parentCtx)
+		m.printers[r.ID] = bp
+		m.cancels[r.ID] = cancel
+		m.run("printer:"+r.ID, func(context.Context) { bp.Run(cctx) })
+		slog.Info("printer added", "id", r.ID, "kind", r.Kind, "ip", r.IP)
 		return nil
 	default:
 		return fmt.Errorf("unknown printer kind %q", r.Kind)
@@ -240,23 +251,4 @@ func (m *Manager) PrinterTarget(id string) (baseURL, apiKey string, ok bool) {
 		return "", "", false
 	}
 	return r.BaseURL, r.APIKey, true
-}
-
-// stubPrinter is an inert adapter.Printer for not-yet-supported kinds.
-type stubPrinter struct{ id, kind, name string }
-
-func (s *stubPrinter) ID() string   { return s.id }
-func (s *stubPrinter) Kind() string { return s.kind }
-func (s *stubPrinter) Snapshot() adapter.PrinterState {
-	return adapter.PrinterState{ID: s.id, Kind: s.kind, Name: s.name, Managed: true, State: adapter.Offline}
-}
-func (s *stubPrinter) Run(context.Context) {}
-func (s *stubPrinter) Command(context.Context, adapter.PrinterCommand) error {
-	return fmt.Errorf("%s control not implemented yet", s.kind)
-}
-func (s *stubPrinter) SetTemp(context.Context, string, float64) error {
-	return fmt.Errorf("%s control not implemented yet", s.kind)
-}
-func (s *stubPrinter) Control(context.Context, adapter.PrinterAction) error {
-	return fmt.Errorf("%s control not implemented yet", s.kind)
 }

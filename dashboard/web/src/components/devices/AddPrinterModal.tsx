@@ -7,8 +7,9 @@ import { Actions, Field, inputCls } from './forms'
 
 const KINDS: { value: PrinterKind; label: string; disabled?: boolean }[] = [
   { value: 'moonraker', label: 'Klipper / Moonraker' },
-  { value: 'octoprint', label: 'OctoPrint (adapter not built yet)', disabled: true },
-  { value: 'bambu', label: 'Bambu Lab (adapter not built yet)', disabled: true },
+  { value: 'octoprint', label: 'OctoPrint' },
+  { value: 'prusalink', label: 'Prusa (PrusaLink)' },
+  { value: 'bambu', label: 'Bambu Lab' },
 ]
 
 // AddPrinterModal adds a new printer or edits an existing one. On edit, connection
@@ -116,6 +117,7 @@ export function AddPrinterModal({
                 className={inputCls}
                 value={form.baseUrl}
                 onChange={(e) => set('baseUrl', e.target.value)}
+                required={!editing}
                 placeholder="http://192.168.0.76"
               />
             </Field>
@@ -164,26 +166,78 @@ export function AddPrinterModal({
         {form.kind === 'octoprint' && (
           <>
             <Field label="Base URL" hint={editing ? 'leave blank to keep current' : 'http://192.168.0.x'}>
-              <input className={inputCls} value={form.baseUrl} onChange={(e) => set('baseUrl', e.target.value)} />
+              <input
+                className={inputCls}
+                value={form.baseUrl}
+                onChange={(e) => set('baseUrl', e.target.value)}
+                required={!editing}
+                placeholder="http://192.168.0.22"
+              />
             </Field>
-            <Field label="API key">
-              <input className={inputCls} value={form.apiKey} onChange={(e) => set('apiKey', e.target.value)} />
+            <Field label="API key" hint={editing ? 'leave blank to keep current' : 'OctoPrint → Settings → Application Keys'}>
+              <input
+                className={inputCls}
+                value={form.apiKey}
+                onChange={(e) => set('apiKey', e.target.value)}
+                required={!editing}
+              />
+            </Field>
+          </>
+        )}
+
+        {form.kind === 'prusalink' && (
+          <>
+            <Field label="Base URL" hint={editing ? 'leave blank to keep current' : "the printer's IP, e.g. http://192.168.0.x"}>
+              <input
+                className={inputCls}
+                value={form.baseUrl}
+                onChange={(e) => set('baseUrl', e.target.value)}
+                required={!editing}
+                placeholder="http://192.168.0.40"
+              />
+            </Field>
+            <Field
+              label="Password"
+              hint={editing ? 'leave blank to keep current' : 'PrusaLink password (printer: Settings → Network → PrusaLink)'}
+            >
+              <input
+                className={inputCls}
+                value={form.apiKey}
+                onChange={(e) => set('apiKey', e.target.value)}
+                required={!editing}
+              />
             </Field>
           </>
         )}
 
         {form.kind === 'bambu' && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="IP">
-              <input className={inputCls} value={form.ip} onChange={(e) => set('ip', e.target.value)} />
+            <Field label="IP" hint={editing ? 'leave blank to keep' : undefined}>
+              <input
+                className={inputCls}
+                value={form.ip}
+                onChange={(e) => set('ip', e.target.value)}
+                required={!editing}
+                placeholder="192.168.0.23"
+              />
             </Field>
-            <Field label="Serial">
-              <input className={inputCls} value={form.serial} onChange={(e) => set('serial', e.target.value)} />
+            <Field label="Serial" hint={editing ? 'leave blank to keep' : undefined}>
+              <input
+                className={inputCls}
+                value={form.serial}
+                onChange={(e) => set('serial', e.target.value)}
+                required={!editing}
+              />
             </Field>
-            <Field label="Access code">
-              <input className={inputCls} value={form.accessCode} onChange={(e) => set('accessCode', e.target.value)} />
+            <Field label="Access code" hint={editing ? 'leave blank to keep' : 'LAN Access Code (printer screen)'}>
+              <input
+                className={inputCls}
+                value={form.accessCode}
+                onChange={(e) => set('accessCode', e.target.value)}
+                required={!editing}
+              />
             </Field>
-            <Field label="Model">
+            <Field label="Model" hint="x1 | x1c | p1s | p1p | a1 | a1mini">
               <input className={inputCls} value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="x1c" />
             </Field>
           </div>

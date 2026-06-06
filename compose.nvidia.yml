@@ -6,6 +6,11 @@
 # Apply:  docker compose -f docker-compose.yml -f compose.nvidia.yml up -d
 # Then:   paste frigate/host-presets/nvidia.yml into frigate/config.yml.
 #
+# ⚠️ For GPU object DETECTION (not just NVDEC/NVENC) you MUST run the TensorRT image.
+# It is parameterized via FRIGATE_IMAGE in the base compose — set in .env:
+#     FRIGATE_IMAGE=ghcr.io/blakeblackshear/frigate:0.17.1-tensorrt
+# The plain image runs the onnx detector on CPU only (no CUDA/TensorRT provider).
+#
 # NOTE: 3 GB VRAM is tight — keep the detect model small (320x320) and the number
 # of decode streams modest; watch VRAM with `nvidia-smi`.
 # -----------------------------------------------------------------------------

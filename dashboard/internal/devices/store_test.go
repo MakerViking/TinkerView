@@ -57,15 +57,22 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestValidatePrinter(t *testing.T) {
-	ok := PrinterRecord{ID: "p1", Kind: "moonraker", Name: "P1", BaseURL: "http://10.0.0.2:7125"}
-	if err := ValidatePrinter(ok); err != nil {
-		t.Fatalf("valid printer rejected: %v", err)
+	good := []PrinterRecord{
+		{ID: "p1", Kind: "moonraker", Name: "P1", BaseURL: "http://10.0.0.2:7125"},
+		{ID: "mk4", Kind: "prusalink", Name: "MK4", BaseURL: "http://10.0.0.3", APIKey: "pw"},
+	}
+	for i, r := range good {
+		if err := ValidatePrinter(r); err != nil {
+			t.Fatalf("valid printer #%d rejected: %v", i, err)
+		}
 	}
 	bad := []PrinterRecord{
 		{ID: "Bad Id", Kind: "moonraker", Name: "x", BaseURL: "http://x"},
 		{ID: "p1", Kind: "moonraker", Name: "", BaseURL: "http://x"},
 		{ID: "p1", Kind: "moonraker", Name: "x", BaseURL: "ftp://x"},
-		{ID: "p1", Kind: "octoprint", Name: "x", BaseURL: "http://x"}, // missing api key
+		{ID: "p1", Kind: "octoprint", Name: "x", BaseURL: "http://x"},  // missing api key
+		{ID: "p1", Kind: "prusalink", Name: "x", BaseURL: "http://x"},  // missing password
+		{ID: "p1", Kind: "prusalink", Name: "x", APIKey: "pw"},         // missing base_url
 		{ID: "p1", Kind: "bambu", Name: "x"},                          // missing ip/serial/code
 		{ID: "p1", Kind: "weird", Name: "x", BaseURL: "http://x"},
 	}

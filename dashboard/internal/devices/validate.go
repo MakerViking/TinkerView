@@ -43,12 +43,20 @@ func ValidatePrinter(r PrinterRecord) error {
 		if strings.TrimSpace(r.APIKey) == "" {
 			return fmt.Errorf("api_key is required for octoprint")
 		}
+	case "prusalink":
+		if err := validateHTTPURL("base_url", r.BaseURL); err != nil {
+			return err
+		}
+		// api_key carries the PrusaLink password (Digest auth, hardcoded user "maker").
+		if strings.TrimSpace(r.APIKey) == "" {
+			return fmt.Errorf("api_key (PrusaLink password) is required for prusalink")
+		}
 	case "bambu":
 		if strings.TrimSpace(r.IP) == "" || strings.TrimSpace(r.Serial) == "" || strings.TrimSpace(r.AccessCode) == "" {
 			return fmt.Errorf("ip, serial and access_code are required for bambu")
 		}
 	default:
-		return fmt.Errorf("unknown printer kind %q (expected moonraker, octoprint or bambu)", r.Kind)
+		return fmt.Errorf("unknown printer kind %q (expected moonraker, octoprint, prusalink or bambu)", r.Kind)
 	}
 	return nil
 }

@@ -1,21 +1,58 @@
-# === Nvidia preset (YOUR Unraid GTX 1060) ===================================
-# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
-# Decode/encode via NVDEC/NVENC; object detection via ONNX (TensorRT EP).
-# Verify model_type/path against Frigate docs "Object Detectors > ONNX".
-# 3 GB VRAM -> keep input at 320x320 and watch `nvidia-smi`.
+# === Nvidia preset (YOUR Unraid GTX 1060 3GB, Pascal) =======================
+# Paste the detectors:/model:/ffmpeg: blocks below OVER the "HOST-SPECIFIC BLOCK"
+# at the top of ../config.yml. Verified against Frigate 0.17 docs (2026-06).
+#
+# ⚠️ CRITICAL — you MUST run the TensorRT image variant for GPU *detection*:
+#   set in .env:  FRIGATE_IMAGE=ghcr.io/blakeblackshear/frigate:0.17.1-tensorrt
+# The plain :0.17.1 image's onnxruntime only ships CPU + OpenVINO (Intel) execution
+# providers — on an Nvidia card the `onnx` detector silently runs on CPU. The
+# CUDA/TensorRT execution provider is compiled ONLY into the `-tensorrt` build.
+# (Your existing `preset-nvidia` ffmpeg hwaccel is video DECODE — separate path;
+# it works on the standard image but does NOT give GPU detection.)
+#
+# NOTE: Frigate 0.16 REMOVED the standalone `type: tensorrt` detector. On Nvidia you
+# now use the `onnx` detector (it auto-selects the TensorRT/CUDA EP in the -tensorrt
+# image). There are NO bundled models and NO auto-download — you export the .onnx
+# yourself (command below) into ./frigate/model_cache/ (-> /config/model_cache/).
+#
+# 3 GB VRAM -> keep input at 320x320, use the FP32 tiny/small model (Pascal has no
+# usable FP16/Tensor cores), and watch `nvidia-smi`. First start is SLOW (it builds +
+# caches the TensorRT engine into model_cache — several minutes).
+#
+# --- Export the model (run on a Docker host; needs internet). MODEL_SIZE=t (tiny)
+#     is the safe default for the 1060; use s for a touch more accuracy. -------------
+#   cd /tmp && docker build . --build-arg MODEL_SIZE=t --build-arg IMG_SIZE=320 \
+#     --output /mnt/user/appdata/webcamserver/frigate/model_cache -f- <<'EOF'
+#   FROM python:3.11 AS build
+#   RUN apt-get update && apt-get install --no-install-recommends -y cmake libgl1 && rm -rf /var/lib/apt/lists/*
+#   COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /bin/
+#   WORKDIR /yolov9
+#   ADD https://github.com/WongKinYiu/yolov9.git .
+#   RUN uv pip install --system -r requirements.txt
+#   RUN uv pip install --system onnx==1.18.0 onnxruntime onnx-simplifier==0.4.* onnxscript
+#   ARG MODEL_SIZE
+#   ARG IMG_SIZE
+#   ADD https://github.com/WongKinYiu/yolov9/releases/download/v0.1/yolov9-${MODEL_SIZE}-converted.pt yolov9-${MODEL_SIZE}.pt
+#   RUN sed -i "s/ckpt = torch.load(attempt_download(w), map_location='cpu')/ckpt = torch.load(attempt_download(w), map_location='cpu', weights_only=False)/g" models/experimental.py
+#   RUN python3 export.py --weights ./yolov9-${MODEL_SIZE}.pt --imgsz ${IMG_SIZE} --simplify --include onnx
+#   FROM scratch
+#   ARG MODEL_SIZE
+#   ARG IMG_SIZE
+#   COPY --from=build /yolov9/yolov9-${MODEL_SIZE}.onnx /yolov9-${MODEL_SIZE}-${IMG_SIZE}.onnx
+#   EOF
+# Produces yolov9-t-320.onnx in model_cache. (Needs DOCKER_BUILDKIT=1 for --output.)
 
 detectors:
   onnx:
     type: onnx
 
 model:
-  model_type: yolonas
+  model_type: yolo-generic        # YOLOv9 path; supports CUDA Graphs on Nvidia
   width: 320
   height: 320
   input_tensor: nchw
-  input_dtype: float
-  # Put a YOLO-NAS ONNX model in ./frigate/model_cache/ (-> /config/model_cache/).
-  path: /config/model_cache/yolo_nas_s.onnx
+  input_dtype: float              # FP32 — do NOT use float16 on Pascal (GTX 1060)
+  path: /config/model_cache/yolov9-t-320.onnx
   labelmap_path: /labelmap/coco-80.txt
 
 ffmpeg:
