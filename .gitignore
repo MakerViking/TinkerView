@@ -33,6 +33,9 @@ storage/
 mosquitto/data/
 mosquitto/log/
 
+# --- tailscale sidecar node state (contains the node key — never commit) ---
+tailscale/state/
+
 # --- tooling / misc ---
 .playwright-mcp/
 *.log
