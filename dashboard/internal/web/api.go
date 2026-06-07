@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,20 +10,31 @@ import (
 	"github.com/MakerViking/TinkerView/internal/devices"
 	"github.com/MakerViking/TinkerView/internal/hub"
 	"github.com/MakerViking/TinkerView/internal/notify"
+	"github.com/MakerViking/TinkerView/internal/rules"
 )
 
+// PlateManager reads/writes Frigate's known license plates (lpr.known_plates).
+// Implemented by the camera manager; may be nil when Frigate config editing is off.
+type PlateManager interface {
+	KnownPlates(ctx context.Context) (map[string][]string, error)
+	SetKnownPlates(plates map[string][]string) error
+}
+
 // API holds the REST mirror handlers. Most live state is delivered over the WS;
-// these endpoints exist for initial paint, debugging, and ntfy lock-screen action
-// buttons (which can only do plain HTTP).
+// these endpoints exist for initial paint, debugging, ntfy lock-screen action
+// buttons (which can only do plain HTTP), and the Recognition tab's
+// plate/notification-rule editors.
 type API struct {
 	version  string
 	hub      *hub.Hub
 	cmd      hub.CommandHandler
 	notifier notify.Notifier
+	plates   PlateManager // may be nil
+	rules    *rules.Store // may be nil
 }
 
-func NewAPI(version string, h *hub.Hub, cmd hub.CommandHandler, notifier notify.Notifier) *API {
-	return &API{version: version, hub: h, cmd: cmd, notifier: notifier}
+func NewAPI(version string, h *hub.Hub, cmd hub.CommandHandler, notifier notify.Notifier, plates PlateManager, ruleStore *rules.Store) *API {
+	return &API{version: version, hub: h, cmd: cmd, notifier: notifier, plates: plates, rules: ruleStore}
 }
 
 // Register wires the REST routes onto mux (Go 1.22+ method+path patterns).
@@ -47,6 +59,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/cameras/{name}/demote", a.cameraDemote)
 	mux.HandleFunc("PUT /api/cameras/{name}/settings", a.cameraSettings)
 	mux.HandleFunc("GET /api/cameras/{name}/settings", a.cameraSettingsGet)
+	// Recognition tab: known license plates (Frigate lpr) + notification rules.
+	mux.HandleFunc("GET /api/plates", a.platesGet)
+	mux.HandleFunc("PUT /api/plates", a.platesPut)
+	mux.HandleFunc("GET /api/notify-rules", a.rulesGet)
+	mux.HandleFunc("PUT /api/notify-rules", a.rulesPut)
 }
 
 func (a *API) version_(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +249,66 @@ func (a *API) cameraDemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (a *API) platesGet(w http.ResponseWriter, r *http.Request) {
+	if a.plates == nil {
+		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
+		return
+	}
+	m, err := a.plates.KnownPlates(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if m == nil {
+		m = map[string][]string{}
+	}
+	writeJSON(w, map[string]any{"plates": m})
+}
+
+func (a *API) platesPut(w http.ResponseWriter, r *http.Request) {
+	if a.plates == nil {
+		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Plates map[string][]string `json:"plates"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.plates.SetKnownPlates(body.Plates); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted) // applying to Frigate (restart) runs asynchronously
+}
+
+func (a *API) rulesGet(w http.ResponseWriter, r *http.Request) {
+	if a.rules == nil {
+		writeJSON(w, []rules.Rule{})
+		return
+	}
+	writeJSON(w, a.rules.Get())
+}
+
+func (a *API) rulesPut(w http.ResponseWriter, r *http.Request) {
+	if a.rules == nil {
+		http.Error(w, "notification rules are not available", http.StatusServiceUnavailable)
+		return
+	}
+	var rs []rules.Rule
+	if err := json.NewDecoder(r.Body).Decode(&rs); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.rules.Set(rs); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *API) notifyTest(w http.ResponseWriter, r *http.Request) {

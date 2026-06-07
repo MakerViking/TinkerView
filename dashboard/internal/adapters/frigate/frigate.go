@@ -144,7 +144,9 @@ func (a *Adapter) onState(_ mqtt.Client, m mqtt.Message) {
 	a.bus.Publish(bus.Event{Source: bus.SourceFrigate, Kind: bus.KindCameraState, ID: cam, Ts: time.Now(), Payload: cs})
 }
 
-// onReview turns a new "alert" review segment into an in-app Alert.
+// onReview turns a new "alert" review segment into an in-app Alert, carrying the
+// primary object label, the recognized name (sub_label, from face/plate
+// recognition), and the zones — so the notification rule engine can prioritize.
 func (a *Adapter) onReview(_ mqtt.Client, m mqtt.Message) {
 	var rv struct {
 		Type  string `json:"type"`
@@ -154,6 +156,8 @@ func (a *Adapter) onReview(_ mqtt.Client, m mqtt.Message) {
 			Severity string `json:"severity"`
 			Data     struct {
 				Objects    []string `json:"objects"`
+				SubLabels  []string `json:"sub_labels"`
+				Zones      []string `json:"zones"`
 				Detections []string `json:"detections"`
 			} `json:"data"`
 		} `json:"after"`
@@ -165,25 +169,47 @@ func (a *Adapter) onReview(_ mqtt.Client, m mqtt.Message) {
 	if rv.Type != "new" || rv.After.Severity != "alert" {
 		return
 	}
+	// Primary label: prefer person (the alert-worthy case) else the first object.
+	label := ""
+	if len(rv.After.Data.Objects) > 0 {
+		label = rv.After.Data.Objects[0]
+	}
 	kind := "motion"
 	for _, o := range rv.After.Data.Objects {
 		if o == "person" {
-			kind = "person"
+			kind, label = "person", "person"
 			break
 		}
 	}
+	subLabel := firstNonEmpty(rv.After.Data.SubLabels)
+
 	a.mu.Lock()
 	a.seq++
 	seq := a.seq
 	a.mu.Unlock()
 
+	// A recognized name leads the title ("Bob — outside"); otherwise the object.
+	lead := capitalize(kind)
+	if subLabel != "" {
+		lead = subLabel
+	}
+	msgParts := rv.After.Data.Objects
+	if subLabel != "" {
+		msgParts = append([]string{subLabel}, msgParts...)
+	}
+	if len(rv.After.Data.Zones) > 0 {
+		msgParts = append(msgParts, "in "+strings.Join(rv.After.Data.Zones, ", "))
+	}
 	al := adapter.Alert{
-		ID:      fmt.Sprintf("frigate-%s-%d", rv.After.ID, seq),
-		Kind:    kind,
-		Camera:  rv.After.Camera,
-		Ts:      time.Now().UnixMilli(),
-		Title:   capitalize(kind) + " — " + rv.After.Camera,
-		Message: strings.Join(rv.After.Data.Objects, ", "),
+		ID:       fmt.Sprintf("frigate-%s-%d", rv.After.ID, seq),
+		Kind:     kind,
+		Camera:   rv.After.Camera,
+		Ts:       time.Now().UnixMilli(),
+		Title:    lead + " — " + rv.After.Camera,
+		Message:  strings.Join(msgParts, ", "),
+		Label:    label,
+		SubLabel: subLabel,
+		Zones:    rv.After.Data.Zones,
 	}
 	if len(rv.After.Data.Detections) > 0 {
 		ev := rv.After.Data.Detections[0]
@@ -191,6 +217,15 @@ func (a *Adapter) onReview(_ mqtt.Client, m mqtt.Message) {
 		al.ClipURL = "/frigate/api/events/" + ev + "/clip.mp4"
 	}
 	a.bus.Publish(bus.Event{Source: bus.SourceFrigate, Kind: bus.KindAlert, ID: al.ID, Ts: time.Now(), Payload: al})
+}
+
+func firstNonEmpty(ss []string) string {
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // fetchConfig enumerates Frigate cameras and their record ceiling (so the UI can

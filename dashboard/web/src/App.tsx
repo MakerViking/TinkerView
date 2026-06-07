@@ -5,6 +5,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { CameraWall } from '@/components/camera/CameraWall'
 import { RecordingsPanel } from '@/components/recordings/RecordingsPanel'
 import { PrinterPanel } from '@/components/printer/PrinterPanel'
+import { RecognitionPanel } from '@/components/recognition/RecognitionPanel'
 import { HealthPanel } from '@/components/health/HealthPanel'
 import { AlertsFeed } from '@/components/alerts/AlertsFeed'
 import { AddPrinterModal } from '@/components/devices/AddPrinterModal'
@@ -19,6 +20,7 @@ export default function App() {
           {tab === 'cameras' && <CameraWall />}
           {tab === 'recordings' && <RecordingsPanel />}
           {tab === 'printers' && <PrintersView />}
+          {tab === 'recognition' && <RecognitionPanel />}
           {tab === 'health' && <HealthPanel />}
           {tab === 'alerts' && <AlertsFeed />}
         </ErrorBoundary>

@@ -14,13 +14,22 @@ import (
 	"github.com/MakerViking/TinkerView/internal/adapter"
 	"github.com/MakerViking/TinkerView/internal/bus"
 	"github.com/MakerViking/TinkerView/internal/notify"
+	"github.com/MakerViking/TinkerView/internal/rules"
 )
 
 const cooldown = 30 * time.Second
 
+// alertRuler decides whether/how to push a Frigate detection. Implemented by
+// *rules.Store; an interface so the engine can run without one (nil = legacy
+// priority-by-kind behavior).
+type alertRuler interface {
+	Evaluate(rules.Input) rules.Decision
+}
+
 type Engine struct {
 	bus      *bus.Bus
 	notifier notify.Notifier
+	rules    alertRuler
 
 	mu        sync.Mutex
 	lastState map[string]adapter.PState
@@ -28,9 +37,11 @@ type Engine struct {
 	seq       int64
 }
 
-func New(b *bus.Bus, n notify.Notifier) *Engine {
+// New builds the engine. ruler (may be nil) applies the notification rule set to
+// Frigate detections; without it, alerts use the static priority-by-kind fallback.
+func New(b *bus.Bus, n notify.Notifier, ruler alertRuler) *Engine {
 	return &Engine{
-		bus: b, notifier: n,
+		bus: b, notifier: n, rules: ruler,
 		lastState: map[string]adapter.PState{},
 		lastFired: map[string]time.Time{},
 	}
@@ -102,9 +113,31 @@ func (e *Engine) handle(ctx context.Context, ev bus.Event) {
 		if !ok {
 			return
 		}
+		prio, suppressed := e.decide(a)
+		if suppressed {
+			slog.Debug("automation: alert suppressed by rule", "camera", a.Camera, "label", a.Label, "sub", a.SubLabel)
+			return
+		}
 		e.fire(ctx, "alert:"+a.ID, adapter.Alert{},
-			notify.Notification{Title: a.Title, Message: a.Message, Priority: priorityFor(a.Kind), Tags: tagsFor(a.Kind)})
+			notify.Notification{Title: a.Title, Message: a.Message, Priority: prio, Tags: tagsFor(a.Kind)})
 	}
+}
+
+// decide applies the notification rule set to a Frigate alert, returning the ntfy
+// priority and whether the push is suppressed (ignored). With no rule engine
+// configured it falls back to the static priority-by-kind policy.
+func (e *Engine) decide(a adapter.Alert) (priority int, suppressed bool) {
+	if e.rules == nil {
+		return priorityFor(a.Kind), false
+	}
+	d := e.rules.Evaluate(rules.Input{
+		Camera:   a.Camera,
+		Label:    a.Label,
+		SubLabel: a.SubLabel,
+		Zones:    a.Zones,
+		Now:      time.Now(),
+	})
+	return d.Priority, !d.Notify
 }
 
 // fire enforces a per-key cooldown, optionally publishes an in-app Alert (when

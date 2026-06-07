@@ -184,6 +184,22 @@ export interface Alert {
   message: string
   thumbUrl?: string
   clipUrl?: string
+  label?: string // primary object (person|car|…)
+  subLabel?: string // recognized name (known face/plate); empty = unknown
+  zones?: string[]
+}
+
+// NotifyRule mirrors the Go rules.Rule JSON shape (Recognition tab editor).
+export interface NotifyRule {
+  name?: string
+  camera?: string
+  label?: string
+  match?: string // any|known|unknown|<recognized-name>
+  zone?: string
+  from?: string // "HH:MM"
+  to?: string // "HH:MM"
+  action: 'push' | 'silent' | 'ignore'
+  priority?: number // 1..5
 }
 
 export interface Container {

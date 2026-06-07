@@ -33,8 +33,30 @@ function AlertCard({ a }: { a: Alert }) {
         <img src={a.thumbUrl} alt="" className="w-16 h-10 object-cover rounded bg-black" />
       )}
       <div className="min-w-0">
-        <div className="text-sm font-medium truncate">{a.title}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium truncate">{a.title}</span>
+          {a.subLabel ? (
+            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-300">
+              {a.subLabel}
+            </span>
+          ) : (
+            a.label === 'person' && (
+              <span className="shrink-0 rounded bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-300">
+                unknown
+              </span>
+            )
+          )}
+        </div>
         <div className="text-xs text-slate-400 truncate">{a.message}</div>
+        {a.zones && a.zones.length > 0 && (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {a.zones.map((z) => (
+              <span key={z} className="rounded bg-slate-800 px-1.5 text-[10px] text-slate-400">
+                {z}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <time className="ml-auto text-xs text-slate-500 whitespace-nowrap">
         {new Date(a.ts).toLocaleTimeString()}

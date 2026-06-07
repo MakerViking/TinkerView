@@ -28,6 +28,7 @@ import (
 	"github.com/MakerViking/TinkerView/internal/devices"
 	"github.com/MakerViking/TinkerView/internal/hub"
 	"github.com/MakerViking/TinkerView/internal/notify"
+	"github.com/MakerViking/TinkerView/internal/rules"
 	"github.com/MakerViking/TinkerView/internal/web"
 )
 
@@ -116,7 +117,15 @@ func main() {
 		notifier = notify.NewNtfy(cfg.Ntfy.BaseURL, cfg.Ntfy.Topic, cfg.Ntfy.Token)
 		slog.Info("ntfy notifier", "url", cfg.Ntfy.BaseURL, "topic", cfg.Ntfy.Topic)
 	}
-	extraRunners = append(extraRunners, automation.New(b, notifier).Run)
+	// Notification rules: prioritize/suppress Frigate detections (known/unknown
+	// face/plate + zone + time of day → push/silent/ignore). Seeded with sensible
+	// defaults on first run; editable from the Recognition tab.
+	ruleStore, err := rules.Open(filepath.Join(cfg.DataDir, "notify-rules.json"))
+	if err != nil {
+		slog.Error("open notification rules", "err", err)
+		os.Exit(1)
+	}
+	extraRunners = append(extraRunners, automation.New(b, notifier, ruleStore).Run)
 
 	// Server health (containers + disk) via a Docker-compatible API.
 	var dockerSrc *dockersrc.Source
@@ -146,7 +155,13 @@ func main() {
 
 	cmd := &commandRouter{printers: mgr, cameras: cameraMgr, docker: dockerSrc, frigate: frigateAdapter}
 	h := hub.New(b, cmd, cfg.Auth.Token)
-	api := web.NewAPI(Version, h, cmd, notifier)
+	// cameraMgr is the PlateManager (lpr.known_plates) only when Frigate config
+	// editing is available; nil otherwise so the API reports it as unavailable.
+	var plateMgr web.PlateManager
+	if frigateCfg != nil {
+		plateMgr = cameraMgr
+	}
+	api := web.NewAPI(Version, h, cmd, notifier, plateMgr, ruleStore)
 
 	router, err := web.Router(cfg, h, api, mgr)
 	if err != nil {

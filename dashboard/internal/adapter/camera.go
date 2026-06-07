@@ -55,4 +55,15 @@ type Alert struct {
 	Message   string `json:"message"`
 	ThumbURL  string `json:"thumbUrl,omitempty"`
 	ClipURL   string `json:"clipUrl,omitempty"`
+	// Label is the primary tracked object that triggered the alert (person|car|…),
+	// distinct from Kind (which is only person/motion for the icon). Used by the
+	// notification rule engine.
+	Label string `json:"label,omitempty"`
+	// SubLabel is the recognized name for the object — a known face's name or a
+	// recognized license plate's owner. Empty = unrecognized ("unknown"). Drives the
+	// known/unknown distinction in notification rules.
+	SubLabel string `json:"subLabel,omitempty"`
+	// Zones are the Frigate zones the object entered (e.g. ["front_yard"]). Used by
+	// zone-scoped notification rules and shown in the feed.
+	Zones []string `json:"zones,omitempty"`
 }

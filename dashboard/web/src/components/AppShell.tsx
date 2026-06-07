@@ -3,12 +3,13 @@ import { ConnectionStatusBadge } from './ConnectionStatusBadge'
 import { useLive } from '@/store/live'
 import { cn } from '@/lib/utils'
 
-export type Tab = 'cameras' | 'recordings' | 'printers' | 'health' | 'alerts'
+export type Tab = 'cameras' | 'recordings' | 'printers' | 'recognition' | 'health' | 'alerts'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'cameras', label: 'Cameras' },
   { id: 'recordings', label: 'Recordings' },
   { id: 'printers', label: 'Printers' },
+  { id: 'recognition', label: 'Recognition' },
   { id: 'health', label: 'Server' },
   { id: 'alerts', label: 'Notifications' },
 ]
