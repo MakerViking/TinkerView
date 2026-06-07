@@ -39,3 +39,6 @@ tailscale/state/
 # --- tooling / misc ---
 .playwright-mcp/
 *.log
+
+# Graphify per-repo knowledge graph (generated; served via local MCP)
+graphify-out/
