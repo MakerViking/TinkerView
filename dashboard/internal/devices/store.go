@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -52,13 +54,51 @@ type PrinterRecord struct {
 // its own config and the reconcile loop leaves it alone; the Detect/Record/...
 // fields are the options used to build the Frigate camera block.
 type CameraRecord struct {
-	Name       string `yaml:"name" json:"name"`
-	Src        string `yaml:"src" json:"src"`
+	Name string `yaml:"name" json:"name"`
+	Src  string `yaml:"src" json:"src"`
+	// Username/Password, when set, are injected into Src's stream URL by Source()
+	// so the credentials live in one place instead of being embedded in the URL.
+	// Stored in plaintext like printer API keys; Password is never sent to clients.
+	Username   string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password   string `yaml:"password,omitempty" json:"-"`
 	Promoted   bool   `yaml:"promoted" json:"promoted"`
 	Detect     bool   `yaml:"detect,omitempty" json:"detect,omitempty"`
 	Record     bool   `yaml:"record,omitempty" json:"record,omitempty"`
 	RecordDays int    `yaml:"record_days,omitempty" json:"recordDays,omitempty"`
 	Snapshots  bool   `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
+}
+
+// Source returns the go2rtc source for this camera with its credentials injected
+// into the stream URL's userinfo (replacing any already present). With no
+// username set it returns Src verbatim, so a camera whose URL already embeds
+// credentials keeps working. It understands a leading "ffmpeg:" pipeline wrapper
+// and a trailing "#…" go2rtc options fragment, and leaves non-URL sources
+// (exec:, raw "advanced" strings) untouched.
+func (r CameraRecord) Source() string {
+	return injectCredentials(r.Src, r.Username, r.Password)
+}
+
+func injectCredentials(src, user, pass string) string {
+	if user == "" && pass == "" {
+		return src
+	}
+	prefix, rest := "", src
+	switch {
+	case strings.HasPrefix(rest, "ffmpeg:"):
+		prefix, rest = "ffmpeg:", strings.TrimPrefix(rest, "ffmpeg:")
+	case strings.HasPrefix(rest, "exec:"):
+		return src // raw command line, not a URL
+	}
+	urlPart, frag := rest, ""
+	if i := strings.IndexByte(rest, '#'); i >= 0 {
+		urlPart, frag = rest[:i], rest[i:]
+	}
+	u, err := url.Parse(urlPart)
+	if err != nil || u.Host == "" {
+		return src // not a single parseable URL — leave as-is
+	}
+	u.User = url.UserPassword(user, pass)
+	return prefix + u.String() + frag
 }
 
 // Store persists StoreData to a single YAML file, guarded by a mutex. It is the

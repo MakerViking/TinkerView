@@ -63,7 +63,7 @@ func NewManager(base context.Context, store *devices.Store, g2 *go2rtc.Client, b
 // AddCamera registers a new live-tile camera: validate, persist, push to go2rtc,
 // and publish an instant tile. Synchronous (fast) so validation errors surface
 // immediately.
-func (m *Manager) AddCamera(name, srcKind, srcInput string) error {
+func (m *Manager) AddCamera(name, srcKind, srcInput, username, password string) error {
 	if err := devices.ValidateCameraName(name); err != nil {
 		return err
 	}
@@ -81,11 +81,11 @@ func (m *Manager) AddCamera(name, srcKind, srcInput string) error {
 	if err := m.checkStreamCollision(ctx, name); err != nil {
 		return err
 	}
-	rec := devices.CameraRecord{Name: name, Src: src, Record: true}
+	rec := devices.CameraRecord{Name: name, Src: src, Username: strings.TrimSpace(username), Password: password, Record: true}
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
-	if err := m.g2.PutStream(ctx, name, src); err != nil {
+	if err := m.g2.PutStream(ctx, name, rec.Source()); err != nil {
 		// Keep the record (reconcile will retry); report the failure.
 		return fmt.Errorf("camera saved but go2rtc rejected the stream: %w", err)
 	}
@@ -94,62 +94,101 @@ func (m *Manager) AddCamera(name, srcKind, srcInput string) error {
 	return nil
 }
 
-// EditCamera changes a live-tile camera's name and/or source (synchronous).
-// Editing a promoted camera is rejected (demote first).
-func (m *Manager) EditCamera(name, newName, newSrcKind, newSrcInput string) error {
-	ctx, cancel := context.WithTimeout(m.base, opTimeout)
-	defer cancel()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	rec, ok := m.store.Camera(name)
-	if !ok {
-		return fmt.Errorf("unknown camera %q", name)
-	}
-	if rec.Promoted {
-		return fmt.Errorf("camera %q is promoted to Frigate; demote it before editing", name)
-	}
-	newRec := rec
-	renamed := false
-	if newName != "" && newName != name {
-		if err := devices.ValidateCameraName(newName); err != nil {
-			return err
-		}
-		if _, exists := m.store.Camera(newName); exists {
-			return fmt.Errorf("a camera named %q already exists", newName)
-		}
-		if err := m.checkStreamCollision(ctx, newName); err != nil {
-			return err
-		}
-		newRec.Name = newName
-		renamed = true
-	}
+// EditCamera changes a live-tile camera's name, source and/or credentials. A
+// rename still requires a non-promoted camera, but the source URL and
+// credentials of a PROMOTED camera are editable in place: the go2rtc stream in
+// Frigate's config is rewritten and Frigate restarts (asynchronously, reported
+// via notices) — so a security cam can be given credentials without a demote/
+// re-promote dance. Empty username and empty newSrcInput each mean "keep the
+// current value".
+func (m *Manager) EditCamera(name, newName, newSrcKind, newSrcInput, username, password string) error {
+	// Resolve/validate inputs that don't need the lock first.
+	var newSrc string
 	if strings.TrimSpace(newSrcInput) != "" {
-		src, err := m.resolveSrc(newSrcKind, newSrcInput)
+		s, err := m.resolveSrc(newSrcKind, newSrcInput)
 		if err != nil {
 			return err
 		}
-		newRec.Src = src
+		newSrc = s
+	}
+	renaming := newName != "" && newName != name
+	if renaming {
+		if err := devices.ValidateCameraName(newName); err != nil {
+			return err
+		}
 	}
 
-	if renamed {
-		if _, err := m.store.DeleteCamera(name); err != nil {
-			return fmt.Errorf("save camera: %w", err)
+	asyncWork, err := func() (func(context.Context), error) {
+		ctx, cancel := context.WithTimeout(m.base, opTimeout)
+		defer cancel()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		rec, ok := m.store.Camera(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown camera %q", name)
 		}
-		if err := m.store.UpsertCamera(newRec); err != nil {
-			return fmt.Errorf("save camera: %w", err)
+
+		newRec := rec
+		credsChanged := false
+		if u := strings.TrimSpace(username); u != "" && (u != rec.Username || password != rec.Password) {
+			newRec.Username, newRec.Password, credsChanged = u, password, true
 		}
-		_ = m.g2.DeleteStream(ctx, name)
-		_ = m.g2.PutStream(ctx, newRec.Name, newRec.Src)
-		m.publishDeleted(name)
-		m.publishManaged(newRec)
-	} else {
-		if err := m.store.UpsertCamera(newRec); err != nil {
-			return fmt.Errorf("save camera: %w", err)
+		srcChanged := false
+		if newSrc != "" && newSrc != rec.Src {
+			newRec.Src, srcChanged = newSrc, true
 		}
-		_ = m.g2.PutStream(ctx, newRec.Name, newRec.Src) // PUT replaces the source
-		m.publishManaged(newRec)
+
+		// Promoted cameras are owned by Frigate: rename needs a demote, but a
+		// source/credential change is re-applied to Frigate asynchronously.
+		if rec.Promoted {
+			if renaming {
+				return nil, fmt.Errorf("camera %q is promoted to Frigate; demote it before renaming", name)
+			}
+			if !srcChanged && !credsChanged {
+				return nil, nil
+			}
+			return func(ctx context.Context) {
+				if e := m.editPromotedSource(ctx, newRec); e != nil {
+					m.notice("error", e.Error())
+				}
+			}, nil
+		}
+
+		// Non-promoted: apply synchronously.
+		if renaming {
+			if _, exists := m.store.Camera(newName); exists {
+				return nil, fmt.Errorf("a camera named %q already exists", newName)
+			}
+			if err := m.checkStreamCollision(ctx, newName); err != nil {
+				return nil, err
+			}
+			newRec.Name = newName
+			if _, err := m.store.DeleteCamera(name); err != nil {
+				return nil, fmt.Errorf("save camera: %w", err)
+			}
+			if err := m.store.UpsertCamera(newRec); err != nil {
+				return nil, fmt.Errorf("save camera: %w", err)
+			}
+			_ = m.g2.DeleteStream(ctx, name)
+			_ = m.g2.PutStream(ctx, newRec.Name, newRec.Source())
+			m.publishDeleted(name)
+			m.publishManaged(newRec)
+		} else {
+			if err := m.store.UpsertCamera(newRec); err != nil {
+				return nil, fmt.Errorf("save camera: %w", err)
+			}
+			_ = m.g2.PutStream(ctx, newRec.Name, newRec.Source()) // PUT replaces the source
+			m.publishManaged(newRec)
+		}
+		slog.Info("camera edited", "name", newRec.Name)
+		return nil, nil
+	}()
+	if err != nil {
+		return err
 	}
-	slog.Info("camera edited", "name", newRec.Name)
+	if asyncWork != nil {
+		m.async(asyncWork)
+	}
 	return nil
 }
 
@@ -239,7 +278,7 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 			if _, still := m.store.Camera(rec.Name); !still {
 				continue
 			}
-			if e := m.g2.PutStream(ctx, rec.Name, rec.Src); e != nil {
+			if e := m.g2.PutStream(ctx, rec.Name, rec.Source()); e != nil {
 				slog.Warn("camera reconcile: put failed", "name", rec.Name, "err", e)
 			}
 		}

@@ -70,7 +70,7 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	if err != nil {
 		return fmt.Errorf("back up Frigate config (aborting): %w", err)
 	}
-	newRaw, err := insertCameraYAML(raw, name, rec.Src, opts)
+	newRaw, err := insertCameraYAML(raw, name, rec.Source(), opts)
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
 	}
@@ -96,6 +96,61 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	m.publishManaged(rec)
 	m.notice("info", fmt.Sprintf("Camera %q promoted to Frigate NVR", name))
 	slog.Info("camera promoted", "name", name)
+	return nil
+}
+
+// editPromotedSource re-applies a promoted camera's updated record (new source/
+// credentials) to Frigate: it rewrites only the go2rtc stream entry and restarts
+// Frigate, leaving the camera block and NVR options untouched. The store is
+// updated before the restart (so a crash heals to the new state) and reverted if
+// Frigate fails to come back. `want` carries the desired Src/Username/Password.
+func (m *Manager) editPromotedSource(ctx context.Context, want devices.CameraRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.frigate == nil {
+		return fmt.Errorf("Frigate config editing is not available")
+	}
+	cur, ok := m.store.Camera(want.Name)
+	if !ok {
+		return fmt.Errorf("unknown camera %q", want.Name)
+	}
+	if !cur.Promoted {
+		return fmt.Errorf("camera %q is no longer promoted", want.Name)
+	}
+	m.notice("info", fmt.Sprintf("Updating %q — Frigate will restart (~25s)…", want.Name))
+	raw, err := m.frigate.GetRaw(ctx)
+	if err != nil {
+		return fmt.Errorf("read Frigate config: %w", err)
+	}
+	backupPath, err := m.frigate.backup(raw)
+	if err != nil {
+		return fmt.Errorf("back up Frigate config (aborting): %w", err)
+	}
+	// Carry the new source/credentials onto the current record (preserve NVR options).
+	next := cur
+	next.Src, next.Username, next.Password = want.Src, want.Username, want.Password
+	newRaw, err := updateStreamSourceYAML(raw, next.Name, next.Source())
+	if err != nil {
+		return fmt.Errorf("build Frigate config: %w", err)
+	}
+	if err := m.frigate.Validate(ctx, newRaw); err != nil {
+		return fmt.Errorf("Frigate rejected the config: %w", err)
+	}
+	if err := m.store.UpsertCamera(next); err != nil {
+		return fmt.Errorf("save camera: %w", err)
+	}
+	if err := m.frigate.SaveRestart(ctx, newRaw); err != nil {
+		_ = m.store.UpsertCamera(cur) // revert store to match the un-saved Frigate config
+		return fmt.Errorf("save Frigate config: %w", err)
+	}
+	if !m.frigate.WaitHealthy(ctx, frigateHealthTimeout) {
+		m.restoreBackup(ctx, backupPath)
+		_ = m.store.UpsertCamera(cur)
+		return fmt.Errorf("Frigate did not come back after the edit; restored previous config (backup: %s)", backupPath)
+	}
+	m.publishManaged(next)
+	m.notice("info", fmt.Sprintf("Camera %q updated", next.Name))
+	slog.Info("promoted camera source edited", "name", next.Name)
 	return nil
 }
 
@@ -135,7 +190,7 @@ func (m *Manager) demoteWork(ctx context.Context, name string) error {
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
-	_ = m.g2.PutStream(ctx, name, rec.Src) // resume the live tile immediately
+	_ = m.g2.PutStream(ctx, name, rec.Source()) // resume the live tile immediately
 	m.publishManaged(rec)
 	m.notice("info", fmt.Sprintf("Camera %q demoted; kept as a live tile", name))
 	slog.Info("camera demoted", "name", name)
@@ -221,6 +276,20 @@ func insertCameraYAML(raw, name, src string, opts PromoteOpts) (string, error) {
 			return err
 		}
 		setMapKey(cams, name, block)
+		return nil
+	})
+}
+
+// updateStreamSourceYAML rewrites go2rtc.streams[name] = [src] without touching
+// the cameras[name] block — used to change a promoted camera's source/credentials.
+func updateStreamSourceYAML(raw, name, src string) (string, error) {
+	return editConfigYAML(raw, func(root *yaml.Node) error {
+		streams := ensureMap(ensureMap(root, "go2rtc"), "streams")
+		srcNode, err := yamlValueNode([]string{src})
+		if err != nil {
+			return err
+		}
+		setMapKey(streams, name, srcNode)
 		return nil
 	})
 }

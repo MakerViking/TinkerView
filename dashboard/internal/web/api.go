@@ -142,12 +142,14 @@ func (a *API) cameraAdd(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		SrcKind  string `json:"srcKind"`
 		SrcInput string `json:"srcInput"`
+		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := a.cmd.AddCamera(body.Name, body.SrcKind, body.SrcInput); err != nil {
+	if err := a.cmd.AddCamera(body.Name, body.SrcKind, body.SrcInput, body.Username, body.Password); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -159,12 +161,14 @@ func (a *API) cameraEdit(w http.ResponseWriter, r *http.Request) {
 		NewName     string `json:"newName"`
 		NewSrcKind  string `json:"newSrcKind"`
 		NewSrcInput string `json:"newSrcInput"`
+		Username    string `json:"username"`
+		Password    string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := a.cmd.EditCamera(r.PathValue("name"), body.NewName, body.NewSrcKind, body.NewSrcInput); err != nil {
+	if err := a.cmd.EditCamera(r.PathValue("name"), body.NewName, body.NewSrcKind, body.NewSrcInput, body.Username, body.Password); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

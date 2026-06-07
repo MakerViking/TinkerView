@@ -232,10 +232,21 @@ export type ClientMsg =
   | { type: 'printer.add'; data: { cmdId?: string; printer: PrinterInput } }
   | { type: 'printer.edit'; data: { cmdId?: string; id: string; printer: PrinterInput } }
   | { type: 'printer.remove'; data: { cmdId?: string; id: string } }
-  | { type: 'camera.add'; data: { cmdId?: string; name: string; srcKind: CameraSrcKind; srcInput: string } }
+  | {
+      type: 'camera.add'
+      data: { cmdId?: string; name: string; srcKind: CameraSrcKind; srcInput: string; username?: string; password?: string }
+    }
   | {
       type: 'camera.edit'
-      data: { cmdId?: string; name: string; newName?: string; newSrcKind?: CameraSrcKind; newSrcInput?: string }
+      data: {
+        cmdId?: string
+        name: string
+        newName?: string
+        newSrcKind?: CameraSrcKind
+        newSrcInput?: string
+        username?: string
+        password?: string
+      }
     }
   | { type: 'camera.remove'; data: { cmdId?: string; name: string } }
   | {

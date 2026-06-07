@@ -5,7 +5,7 @@ import type { CameraSrcKind } from '@/types/ws'
 import { Actions, Field, inputCls } from './forms'
 
 const SRC_KINDS: { value: CameraSrcKind; label: string; hint: string }[] = [
-  { value: 'rtsp', label: 'RTSP (H.264)', hint: 'rtsp://user:pass@host:554/stream — passthrough, near-zero CPU' },
+  { value: 'rtsp', label: 'RTSP (H.264)', hint: 'rtsp://host:554/stream — passthrough; put the login in the fields below' },
   { value: 'mjpeg', label: 'MJPEG printer cam', hint: 'http://host/webcam/?action=stream — transcoded to H.264 for live view' },
   { value: 'h264', label: 'Raw H.264 over HTTP', hint: 'http://host/webcam/stream.h264 (e.g. Snapmaker)' },
   { value: 'mjpeg_raw', label: 'MJPEG (no transcode)', hint: 'Low CPU; falls back to MJPEG/MSE, cannot WebRTC' },
@@ -27,6 +27,8 @@ export function AddCameraModal({
   const [name, setName] = useState(existingName ?? '')
   const [srcKind, setSrcKind] = useState<CameraSrcKind>('rtsp')
   const [srcInput, setSrcInput] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   // promote-on-add
   const [promote, setPromote] = useState(false)
   const [detect, setDetect] = useState(false)
@@ -44,10 +46,15 @@ export function AddCameraModal({
           newName: name !== existingName ? name : undefined,
           newSrcKind: srcInput ? srcKind : undefined,
           newSrcInput: srcInput || undefined,
+          username: username.trim() || undefined,
+          password: password || undefined,
         },
       })
     } else {
-      send({ type: 'camera.add', data: { name, srcKind, srcInput } })
+      send({
+        type: 'camera.add',
+        data: { name, srcKind, srcInput, username: username.trim() || undefined, password: password || undefined },
+      })
       if (promote) {
         send({ type: 'camera.promote', data: { name, detect, record, snapshots } })
       }
@@ -96,6 +103,30 @@ export function AddCameraModal({
             placeholder="rtsp://192.168.0.9:554/stream"
           />
         </Field>
+
+        {srcKind !== 'advanced' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Username" hint={editing ? 'blank = keep current' : 'optional'}>
+              <input
+                className={inputCls}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="off"
+                placeholder={editing ? '••••••' : 'admin'}
+              />
+            </Field>
+            <Field label="Password" hint={editing ? 'blank = keep current' : 'optional'}>
+              <input
+                type="password"
+                className={inputCls}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder={editing ? '••••••' : ''}
+              />
+            </Field>
+          </div>
+        )}
 
         {!editing && (
           <div className="rounded-md border border-slate-800 p-3">

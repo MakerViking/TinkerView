@@ -36,8 +36,8 @@ type CommandHandler interface {
 	AddPrinter(r devices.PrinterRecord) error
 	EditPrinter(id string, r devices.PrinterRecord) error
 	RemovePrinter(id string) error
-	AddCamera(name, srcKind, srcInput string) error
-	EditCamera(name, newName, newSrcKind, newSrcInput string) error
+	AddCamera(name, srcKind, srcInput, username, password string) error
+	EditCamera(name, newName, newSrcKind, newSrcInput, username, password string) error
 	RemoveCamera(name string) error
 	PromoteCamera(name string, detect, record bool, recordDays int, snapshots bool) error
 	DemoteCamera(name string) error
@@ -372,7 +372,7 @@ func (h *Hub) handleCommand(ctx context.Context, raw []byte) {
 			h.notice("warn", "malformed "+m.Type+" command: "+err.Error())
 			return
 		}
-		if err := h.cmd.AddCamera(d.Name, d.SrcKind, d.SrcInput); err != nil {
+		if err := h.cmd.AddCamera(d.Name, d.SrcKind, d.SrcInput, d.Username, d.Password); err != nil {
 			h.notice("warn", err.Error())
 		}
 	case "camera.edit":
@@ -381,7 +381,7 @@ func (h *Hub) handleCommand(ctx context.Context, raw []byte) {
 			h.notice("warn", "malformed "+m.Type+" command: "+err.Error())
 			return
 		}
-		if err := h.cmd.EditCamera(d.Name, d.NewName, d.NewSrcKind, d.NewSrcInput); err != nil {
+		if err := h.cmd.EditCamera(d.Name, d.NewName, d.NewSrcKind, d.NewSrcInput, d.Username, d.Password); err != nil {
 			h.notice("warn", err.Error())
 		}
 	case "camera.remove":

@@ -102,6 +102,8 @@ type CameraAddCmd struct {
 	Name     string `json:"name"`
 	SrcKind  string `json:"srcKind"`
 	SrcInput string `json:"srcInput"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 type CameraEditCmd struct {
@@ -110,6 +112,8 @@ type CameraEditCmd struct {
 	NewName     string `json:"newName,omitempty"`
 	NewSrcKind  string `json:"newSrcKind,omitempty"`
 	NewSrcInput string `json:"newSrcInput,omitempty"`
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
 }
 
 type CameraRemoveCmd struct {

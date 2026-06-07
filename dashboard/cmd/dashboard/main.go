@@ -224,12 +224,12 @@ func (c *commandRouter) EditPrinter(id string, r devices.PrinterRecord) error {
 	return c.printers.EditPrinter(id, r)
 }
 
-func (c *commandRouter) AddCamera(name, srcKind, srcInput string) error {
-	return c.cameras.AddCamera(name, srcKind, srcInput)
+func (c *commandRouter) AddCamera(name, srcKind, srcInput, username, password string) error {
+	return c.cameras.AddCamera(name, srcKind, srcInput, username, password)
 }
 
-func (c *commandRouter) EditCamera(name, newName, newSrcKind, newSrcInput string) error {
-	return c.cameras.EditCamera(name, newName, newSrcKind, newSrcInput)
+func (c *commandRouter) EditCamera(name, newName, newSrcKind, newSrcInput, username, password string) error {
+	return c.cameras.EditCamera(name, newName, newSrcKind, newSrcInput, username, password)
 }
 
 func (c *commandRouter) RemoveCamera(name string) error { return c.cameras.RemoveCamera(name) }
