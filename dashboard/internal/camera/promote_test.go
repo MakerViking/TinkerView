@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/MakerViking/TinkerView/internal/devices"
 )
 
 // sampleConfig mirrors the hand-authored frigate/config.yml shape: comments, a
@@ -62,7 +64,7 @@ func TestRoundTripPreservesComments(t *testing.T) {
 }
 
 func TestInsertAndRemoveCamera(t *testing.T) {
-	withCam, err := insertCameraYAML(sampleConfig, "garage", "rtsp://10.0.0.9/live", PromoteOpts{Record: true, RecordDays: 3})
+	withCam, err := insertCameraYAML(sampleConfig, "garage", "rtsp://10.0.0.9/live", devices.CameraRecord{Record: true, RecordDays: 3})
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -102,5 +104,63 @@ func TestInsertAndRemoveCamera(t *testing.T) {
 		if !strings.Contains(back, want) {
 			t.Errorf("remove dropped %q", want)
 		}
+	}
+}
+
+// TestCameraBlockRecordModeAndZones: object-only recording (record.retain.mode)
+// and a detection zone (normalized flat coords + alerts gated to the zone).
+func TestCameraBlockRecordModeAndZones(t *testing.T) {
+	rec := devices.CameraRecord{
+		Name:       "yard",
+		Detect:     true,
+		Record:     true,
+		RecordMode: "active_objects",
+		RecordDays: 7,
+		Snapshots:  true,
+		Objects:    []string{"person", "car", "cat"},
+		Zones: []devices.Zone{{
+			Name:        "Driveway Area",
+			Coordinates: [][]float64{{0, 0.5}, {1, 0.5}, {1, 1}, {0, 1}},
+			Objects:     []string{"car"},
+		}},
+	}
+	out, err := updateCameraBlockYAML(sampleConfig, "printer1", rec)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var parsed struct {
+		Cameras map[string]struct {
+			Record struct {
+				Retain struct {
+					Mode string `yaml:"mode"`
+					Days int    `yaml:"days"`
+				} `yaml:"retain"`
+			} `yaml:"record"`
+			Zones map[string]struct {
+				Coordinates string `yaml:"coordinates"`
+			} `yaml:"zones"`
+			Review struct {
+				Alerts struct {
+					RequiredZones []string `yaml:"required_zones"`
+				} `yaml:"alerts"`
+			} `yaml:"review"`
+		} `yaml:"cameras"`
+	}
+	if err := yaml.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("config does not parse: %v\n%s", err, out)
+	}
+	cam := parsed.Cameras["printer1"]
+	if cam.Record.Retain.Mode != "active_objects" || cam.Record.Retain.Days != 7 {
+		t.Errorf("record retain = %+v, want active_objects/7", cam.Record.Retain)
+	}
+	z, ok := cam.Zones["driveway_area"]
+	if !ok {
+		t.Fatalf("zone driveway_area missing; zones=%v", cam.Zones)
+	}
+	if z.Coordinates != "0.000,0.500,1.000,0.500,1.000,1.000,0.000,1.000" {
+		t.Errorf("zone coordinates = %q", z.Coordinates)
+	}
+	if len(cam.Review.Alerts.RequiredZones) != 1 || cam.Review.Alerts.RequiredZones[0] != "driveway_area" {
+		t.Errorf("required_zones = %v, want [driveway_area]", cam.Review.Alerts.RequiredZones)
 	}
 }

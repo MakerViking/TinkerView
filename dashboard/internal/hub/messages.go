@@ -134,3 +134,9 @@ type CameraDemoteCmd struct {
 	CmdID string `json:"cmdId,omitempty"`
 	Name  string `json:"name"`
 }
+
+type CameraSettingsCmd struct {
+	CmdID    string                 `json:"cmdId,omitempty"`
+	Name     string                 `json:"name"`
+	Settings devices.CameraSettings `json:"settings"`
+}

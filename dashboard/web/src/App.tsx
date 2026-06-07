@@ -3,6 +3,7 @@ import { WebSocketProvider } from '@/ws/WebSocketProvider'
 import { AppShell, type Tab } from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { CameraWall } from '@/components/camera/CameraWall'
+import { RecordingsPanel } from '@/components/recordings/RecordingsPanel'
 import { PrinterPanel } from '@/components/printer/PrinterPanel'
 import { HealthPanel } from '@/components/health/HealthPanel'
 import { AlertsFeed } from '@/components/alerts/AlertsFeed'
@@ -16,6 +17,7 @@ export default function App() {
       <AppShell tab={tab} onTab={setTab}>
         <ErrorBoundary key={tab}>
           {tab === 'cameras' && <CameraWall />}
+          {tab === 'recordings' && <RecordingsPanel />}
           {tab === 'printers' && <PrintersView />}
           {tab === 'health' && <HealthPanel />}
           {tab === 'alerts' && <AlertsFeed />}

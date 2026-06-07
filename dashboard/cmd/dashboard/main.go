@@ -242,6 +242,14 @@ func (c *commandRouter) PromoteCamera(name string, detect, record bool, recordDa
 
 func (c *commandRouter) DemoteCamera(name string) error { return c.cameras.DemoteCamera(name) }
 
+func (c *commandRouter) EditCameraSettings(name string, s devices.CameraSettings) error {
+	return c.cameras.EditCameraSettings(name, s)
+}
+
+func (c *commandRouter) CameraSettings(name string) (devices.CameraSettings, bool) {
+	return c.cameras.Settings(name)
+}
+
 func (c *commandRouter) CameraToggle(ctx context.Context, cam string, feature adapter.CameraFeature, value, persist bool) error {
 	if c.frigate == nil {
 		return errors.New("Frigate is not configured")

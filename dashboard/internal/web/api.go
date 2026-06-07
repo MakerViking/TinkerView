@@ -45,6 +45,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/cameras/{name}", a.cameraDelete)
 	mux.HandleFunc("POST /api/cameras/{name}/promote", a.cameraPromote)
 	mux.HandleFunc("POST /api/cameras/{name}/demote", a.cameraDemote)
+	mux.HandleFunc("PUT /api/cameras/{name}/settings", a.cameraSettings)
+	mux.HandleFunc("GET /api/cameras/{name}/settings", a.cameraSettingsGet)
 }
 
 func (a *API) version_(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +201,29 @@ func (a *API) cameraPromote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted) // promote runs asynchronously
+}
+
+func (a *API) cameraSettingsGet(w http.ResponseWriter, r *http.Request) {
+	s, ok := a.cmd.CameraSettings(r.PathValue("name"))
+	if !ok {
+		http.Error(w, "unknown camera", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s)
+}
+
+func (a *API) cameraSettings(w http.ResponseWriter, r *http.Request) {
+	var s devices.CameraSettings
+	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.cmd.EditCameraSettings(r.PathValue("name"), s); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted) // applying to a promoted camera runs asynchronously
 }
 
 func (a *API) cameraDemote(w http.ResponseWriter, r *http.Request) {

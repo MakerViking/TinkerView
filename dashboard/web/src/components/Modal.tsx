@@ -1,14 +1,17 @@
 import { type ReactNode, useEffect } from 'react'
+import { cn } from '@/lib/utils'
 
 // Modal is a simple centered dialog with a backdrop. Escape / backdrop click close it.
 export function Modal({
   title,
   onClose,
   children,
+  size = 'md',
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  size?: 'md' | 'lg' | 'xl'
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -24,7 +27,10 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className="my-8 w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 shadow-xl"
+        className={cn(
+          'my-8 w-full rounded-lg border border-slate-700 bg-slate-900 shadow-xl',
+          size === 'xl' ? 'max-w-3xl' : size === 'lg' ? 'max-w-xl' : 'max-w-md',
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">

@@ -49,6 +49,26 @@ type PrinterRecord struct {
 	Macros []string `yaml:"macros,omitempty" json:"macros,omitempty"`
 }
 
+// Zone is a Frigate detection zone (area of interest): a polygon over the frame
+// where the listed objects count. Coordinates are normalized [x,y] pairs (0..1).
+type Zone struct {
+	Name        string      `yaml:"name" json:"name"`
+	Coordinates [][]float64 `yaml:"coordinates" json:"coordinates"`
+	Objects     []string    `yaml:"objects,omitempty" json:"objects,omitempty"`
+}
+
+// CameraSettings is the editable Frigate-NVR configuration for a camera, applied
+// to the cameras[<name>] block (carried by the camera.settings command).
+type CameraSettings struct {
+	Detect     bool     `json:"detect"`
+	Record     bool     `json:"record"`
+	RecordMode string   `json:"recordMode"` // active_objects | motion | all
+	RecordDays int      `json:"recordDays"`
+	Snapshots  bool     `json:"snapshots"`
+	Objects    []string `json:"objects,omitempty"`
+	Zones      []Zone   `json:"zones,omitempty"`
+}
+
 // CameraRecord is a UI-added camera. Src is the resolved go2rtc source string
 // (raw URL or an ffmpeg:/exec: form). When Promoted, Frigate owns the stream via
 // its own config and the reconcile loop leaves it alone; the Detect/Record/...
@@ -64,8 +84,11 @@ type CameraRecord struct {
 	Promoted   bool   `yaml:"promoted" json:"promoted"`
 	Detect     bool   `yaml:"detect,omitempty" json:"detect,omitempty"`
 	Record     bool   `yaml:"record,omitempty" json:"record,omitempty"`
-	RecordDays int    `yaml:"record_days,omitempty" json:"recordDays,omitempty"`
-	Snapshots  bool   `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
+	RecordDays int      `yaml:"record_days,omitempty" json:"recordDays,omitempty"`
+	Snapshots  bool     `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
+	RecordMode string   `yaml:"record_mode,omitempty" json:"recordMode,omitempty"` // active_objects|motion|all
+	Objects    []string `yaml:"objects,omitempty" json:"objects,omitempty"`       // tracked objects; default person,car
+	Zones      []Zone   `yaml:"zones,omitempty" json:"zones,omitempty"`
 }
 
 // Source returns the go2rtc source for this camera with its credentials injected

@@ -41,6 +41,8 @@ type CommandHandler interface {
 	RemoveCamera(name string) error
 	PromoteCamera(name string, detect, record bool, recordDays int, snapshots bool) error
 	DemoteCamera(name string) error
+	EditCameraSettings(name string, s devices.CameraSettings) error
+	CameraSettings(name string) (devices.CameraSettings, bool)
 }
 
 // Hub fans bus events out to every connected WebSocket client and routes inbound
@@ -409,6 +411,15 @@ func (h *Hub) handleCommand(ctx context.Context, raw []byte) {
 			return
 		}
 		if err := h.cmd.DemoteCamera(d.Name); err != nil {
+			h.notice("warn", err.Error())
+		}
+	case "camera.settings":
+		var d CameraSettingsCmd
+		if err := json.Unmarshal(m.Data, &d); err != nil {
+			h.notice("warn", "malformed "+m.Type+" command: "+err.Error())
+			return
+		}
+		if err := h.cmd.EditCameraSettings(d.Name, d.Settings); err != nil {
 			h.notice("warn", err.Error())
 		}
 	case "ping":

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -60,6 +62,10 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	if rec.Promoted {
 		return fmt.Errorf("camera %q is already promoted", name)
 	}
+	// Apply the chosen NVR options to the record up front so the camera block is
+	// built from the same record we persist.
+	rec.Promoted = true
+	rec.Detect, rec.Record, rec.RecordDays, rec.Snapshots = opts.Detect, opts.Record, opts.RecordDays, opts.Snapshots
 
 	m.notice("info", fmt.Sprintf("Promoting %q to Frigate — Frigate will restart (~25s)…", name))
 	raw, err := m.frigate.GetRaw(ctx)
@@ -70,7 +76,7 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	if err != nil {
 		return fmt.Errorf("back up Frigate config (aborting): %w", err)
 	}
-	newRaw, err := insertCameraYAML(raw, name, rec.Source(), opts)
+	newRaw, err := insertCameraYAML(raw, name, rec.Source(), rec)
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
 	}
@@ -79,8 +85,6 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	}
 
 	// Persist intent before the restart so a crash heals to the promoted state.
-	rec.Promoted = true
-	rec.Detect, rec.Record, rec.RecordDays, rec.Snapshots = opts.Detect, opts.Record, opts.RecordDays, opts.Snapshots
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
@@ -152,6 +156,122 @@ func (m *Manager) editPromotedSource(ctx context.Context, want devices.CameraRec
 	m.notice("info", fmt.Sprintf("Camera %q updated", next.Name))
 	slog.Info("promoted camera source edited", "name", next.Name)
 	return nil
+}
+
+// Settings returns a camera's current Frigate-NVR settings from the store (used to
+// pre-fill the settings UI so a save doesn't clobber existing zones).
+func (m *Manager) Settings(name string) (devices.CameraSettings, bool) {
+	rec, ok := m.store.Camera(name)
+	if !ok {
+		return devices.CameraSettings{}, false
+	}
+	return devices.CameraSettings{
+		Detect:     rec.Detect,
+		Record:     rec.Record,
+		RecordMode: rec.RecordMode,
+		RecordDays: rec.RecordDays,
+		Snapshots:  rec.Snapshots,
+		Objects:    rec.Objects,
+		Zones:      rec.Zones,
+	}, true
+}
+
+// EditCameraSettings updates a camera's Frigate-NVR settings (detect, record mode,
+// snapshots, tracked objects, detection zones). For a non-promoted camera the
+// settings are just persisted and take effect when it is next promoted. For a
+// promoted camera the cameras[<name>] block is rewritten and Frigate restarted
+// asynchronously (mirroring editPromotedSource), reported via notices.
+func (m *Manager) EditCameraSettings(name string, s devices.CameraSettings) error {
+	m.mu.Lock()
+	rec, ok := m.store.Camera(name)
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("unknown camera %q", name)
+	}
+	promoted := rec.Promoted
+	if !promoted {
+		// Persist now; applied on next promote.
+		applySettings(&rec, s)
+		err := m.store.UpsertCamera(rec)
+		if err == nil {
+			m.publishManaged(rec)
+		}
+		m.mu.Unlock()
+		if err != nil {
+			return fmt.Errorf("save camera: %w", err)
+		}
+		return nil
+	}
+	m.mu.Unlock()
+	m.async(func(ctx context.Context) {
+		if err := m.applyCameraSettings(ctx, name, s); err != nil {
+			m.notice("error", err.Error())
+		}
+	})
+	return nil
+}
+
+// applyCameraSettings rewrites a promoted camera's cameras[<name>] block from the
+// new settings and restarts Frigate: backup → build → validate → persist → save →
+// health-check → rollback (store + config) on failure.
+func (m *Manager) applyCameraSettings(ctx context.Context, name string, s devices.CameraSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.frigate == nil {
+		return fmt.Errorf("Frigate config editing is not available")
+	}
+	cur, ok := m.store.Camera(name)
+	if !ok {
+		return fmt.Errorf("unknown camera %q", name)
+	}
+	if !cur.Promoted {
+		return fmt.Errorf("camera %q is no longer promoted", name)
+	}
+	next := cur
+	applySettings(&next, s)
+	m.notice("info", fmt.Sprintf("Applying %q settings — Frigate will restart (~25s)…", name))
+	raw, err := m.frigate.GetRaw(ctx)
+	if err != nil {
+		return fmt.Errorf("read Frigate config: %w", err)
+	}
+	backupPath, err := m.frigate.backup(raw)
+	if err != nil {
+		return fmt.Errorf("back up Frigate config (aborting): %w", err)
+	}
+	newRaw, err := updateCameraBlockYAML(raw, name, next)
+	if err != nil {
+		return fmt.Errorf("build Frigate config: %w", err)
+	}
+	if err := m.frigate.Validate(ctx, newRaw); err != nil {
+		return fmt.Errorf("Frigate rejected the config: %w", err)
+	}
+	if err := m.store.UpsertCamera(next); err != nil {
+		return fmt.Errorf("save camera: %w", err)
+	}
+	if err := m.frigate.SaveRestart(ctx, newRaw); err != nil {
+		_ = m.store.UpsertCamera(cur)
+		return fmt.Errorf("save Frigate config: %w", err)
+	}
+	if !m.frigate.WaitHealthy(ctx, frigateHealthTimeout) {
+		m.restoreBackup(ctx, backupPath)
+		_ = m.store.UpsertCamera(cur)
+		return fmt.Errorf("Frigate did not come back after the settings change; restored previous config (backup: %s)", backupPath)
+	}
+	m.publishManaged(next)
+	m.notice("info", fmt.Sprintf("Camera %q settings applied", name))
+	slog.Info("camera settings applied", "name", name)
+	return nil
+}
+
+// applySettings copies CameraSettings onto a record (in place).
+func applySettings(r *devices.CameraRecord, s devices.CameraSettings) {
+	r.Detect = s.Detect
+	r.Record = s.Record
+	r.RecordMode = s.RecordMode
+	r.RecordDays = s.RecordDays
+	r.Snapshots = s.Snapshots
+	r.Objects = s.Objects
+	r.Zones = s.Zones
 }
 
 // DemoteCamera validates quickly, then runs the (slow, Frigate-restarting)
@@ -261,7 +381,7 @@ func (m *Manager) restoreBackup(ctx context.Context, path string) {
 // ----- yaml.Node editing (comment/format-preserving) -----
 
 // insertCameraYAML inserts go2rtc.streams[name]=[src] and a cameras[name] block.
-func insertCameraYAML(raw, name, src string, opts PromoteOpts) (string, error) {
+func insertCameraYAML(raw, name, src string, rec devices.CameraRecord) (string, error) {
 	return editConfigYAML(raw, func(root *yaml.Node) error {
 		streams := ensureMap(ensureMap(root, "go2rtc"), "streams")
 		srcNode, err := yamlValueNode([]string{src})
@@ -271,7 +391,21 @@ func insertCameraYAML(raw, name, src string, opts PromoteOpts) (string, error) {
 		setMapKey(streams, name, srcNode)
 
 		cams := ensureMap(root, "cameras")
-		block, err := yamlValueNode(cameraBlock(name, opts))
+		block, err := yamlValueNode(cameraBlock(name, rec))
+		if err != nil {
+			return err
+		}
+		setMapKey(cams, name, block)
+		return nil
+	})
+}
+
+// updateCameraBlockYAML replaces cameras[name] with a freshly-built block (new
+// detect/record/zones from the record), leaving the go2rtc stream untouched.
+func updateCameraBlockYAML(raw, name string, rec devices.CameraRecord) (string, error) {
+	return editConfigYAML(raw, func(root *yaml.Node) error {
+		cams := ensureMap(root, "cameras")
+		block, err := yamlValueNode(cameraBlock(name, rec))
 		if err != nil {
 			return err
 		}
@@ -309,16 +443,26 @@ func removeCameraYAML(raw, name string) (string, error) {
 	})
 }
 
-// cameraBlock builds the Frigate camera config for a promoted camera, mirroring
-// the Frigate 0.17 schema (no per-camera live.stream_name — live is auto-derived
-// from the same-named go2rtc stream; no per-camera record.retain — retention is
-// governed by Frigate's global record config). The input reads from the go2rtc
-// restream (rtsp://127.0.0.1:8554/<name>). Security style (detect on) adds object
-// tracking; printer style (detect off) just records.
-func cameraBlock(name string, opts PromoteOpts) map[string]any {
+// cameraBlock builds the Frigate camera config from the stored record. The ffmpeg
+// input reads from the go2rtc restream (rtsp://127.0.0.1:8554/<name>); detect,
+// record (with an object-only retain mode when set), snapshots, tracked objects,
+// and detection zones (with alerts/detections gated to those zones) are all driven
+// by the record. Live view is auto-derived from the same-named go2rtc stream.
+func cameraBlock(name string, rec devices.CameraRecord) map[string]any {
 	roles := []string{"detect"} // Frigate requires a detect-role input even if detection is off
-	if opts.Record {
+	if rec.Record {
 		roles = append(roles, "record")
+	}
+	// record-only-on-detect: an object-only retain mode keeps just the footage that
+	// contains tracked objects (Frigate's recording cache + default pre-roll cover
+	// the lead-up). Bare {enabled} otherwise (Frigate's default retention).
+	record := map[string]any{"enabled": rec.Record}
+	if rec.Record && rec.RecordMode != "" {
+		retain := map[string]any{"mode": rec.RecordMode}
+		if rec.RecordDays > 0 {
+			retain["days"] = rec.RecordDays
+		}
+		record["retain"] = retain
 	}
 	block := map[string]any{
 		"enabled": true,
@@ -331,15 +475,77 @@ func cameraBlock(name string, opts PromoteOpts) map[string]any {
 				},
 			},
 		},
-		"detect":    map[string]any{"enabled": opts.Detect, "width": 1280, "height": 720},
-		"record":    map[string]any{"enabled": opts.Record},
-		"snapshots": map[string]any{"enabled": opts.Snapshots},
+		"detect":    map[string]any{"enabled": rec.Detect, "width": 1280, "height": 720},
+		"record":    record,
+		"snapshots": map[string]any{"enabled": rec.Snapshots},
 	}
-	if opts.Detect {
+	if rec.Detect {
 		block["detect"] = map[string]any{"enabled": true, "width": 1280, "height": 720, "fps": 5}
-		block["objects"] = map[string]any{"track": []string{"person", "car"}}
+		objects := rec.Objects
+		if len(objects) == 0 {
+			objects = []string{"person", "car"}
+		}
+		block["objects"] = map[string]any{"track": objects}
+	}
+	if zones, names := zoneBlocks(name, rec.Zones); len(zones) > 0 {
+		block["zones"] = zones
+		// Only alert/record for objects inside the area(s) of interest.
+		block["review"] = map[string]any{
+			"alerts":     map[string]any{"required_zones": names},
+			"detections": map[string]any{"required_zones": names},
+		}
 	}
 	return block
+}
+
+// zoneBlocks converts stored zones into Frigate's zones map (coordinates as a flat
+// normalized "x,y,x,y…" string) plus the ordered list of valid zone names. Zones
+// with a blank/duplicate/camera-colliding name or fewer than 3 points are skipped.
+func zoneBlocks(camName string, zones []devices.Zone) (map[string]any, []string) {
+	out := map[string]any{}
+	var names []string
+	seen := map[string]bool{}
+	for _, z := range zones {
+		zn := slugZone(z.Name)
+		if zn == "" || zn == camName || seen[zn] || len(z.Coordinates) < 3 {
+			continue
+		}
+		zb := map[string]any{"coordinates": flattenCoords(z.Coordinates)}
+		if len(z.Objects) > 0 {
+			zb["objects"] = z.Objects
+		}
+		out[zn] = zb
+		names = append(names, zn)
+		seen[zn] = true
+	}
+	return out, names
+}
+
+func flattenCoords(pairs [][]float64) string {
+	parts := make([]string, 0, len(pairs)*2)
+	for _, p := range pairs {
+		if len(p) != 2 {
+			continue
+		}
+		parts = append(parts, strconv.FormatFloat(p[0], 'f', 3, 64), strconv.FormatFloat(p[1], 'f', 3, 64))
+	}
+	return strings.Join(parts, ",")
+}
+
+// slugZone normalises a user zone name to a Frigate-safe key (lowercase alnum,
+// spaces/dashes → underscore).
+func slugZone(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '_':
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 // editConfigYAML decodes raw into a yaml.Node tree (preserving comments), applies

@@ -3,13 +3,14 @@ import { ConnectionStatusBadge } from './ConnectionStatusBadge'
 import { useLive } from '@/store/live'
 import { cn } from '@/lib/utils'
 
-export type Tab = 'cameras' | 'printers' | 'health' | 'alerts'
+export type Tab = 'cameras' | 'recordings' | 'printers' | 'health' | 'alerts'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'cameras', label: 'Cameras' },
+  { id: 'recordings', label: 'Recordings' },
   { id: 'printers', label: 'Printers' },
   { id: 'health', label: 'Server' },
-  { id: 'alerts', label: 'Alerts' },
+  { id: 'alerts', label: 'Notifications' },
 ]
 
 export function AppShell({
@@ -56,13 +57,42 @@ export function AppShell({
             </button>
           ))}
         </nav>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <NotificationBell tab={tab} onTab={onTab} />
           <ConnectionStatusBadge />
         </div>
       </header>
       <main className="flex-1 p-4">{children}</main>
       <NoticeToast />
     </div>
+  )
+}
+
+// NotificationBell opens the Notifications view and badges how many detections
+// arrived since it was last viewed.
+function NotificationBell({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+  const count = useLive((s) => s.alerts.length)
+  const [seen, setSeen] = useState(0)
+  useEffect(() => {
+    if (tab === 'alerts') setSeen(count)
+  }, [tab, count])
+  const unread = Math.max(0, count - seen)
+  return (
+    <button
+      onClick={() => onTab('alerts')}
+      title="Notifications"
+      className={cn(
+        'relative rounded-md px-2 py-1.5 text-base leading-none',
+        tab === 'alerts' ? 'text-sky-300' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800',
+      )}
+    >
+      🔔
+      {unread > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 min-w-[1rem] rounded-full bg-rose-500 px-1 text-[10px] font-medium leading-4 text-white">
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
+    </button>
   )
 }
 

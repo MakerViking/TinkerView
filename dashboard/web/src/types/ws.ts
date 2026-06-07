@@ -150,6 +150,24 @@ export interface PrinterInput {
 // CameraSrcKind selects how a camera source URL is turned into a go2rtc source.
 export type CameraSrcKind = 'rtsp' | 'h264' | 'mjpeg' | 'mjpeg_raw' | 'advanced'
 
+// Zone is a Frigate detection area of interest (a normalized [x,y] polygon).
+export interface Zone {
+  name: string
+  coordinates: number[][]
+  objects?: string[]
+}
+
+// CameraSettings mirrors the Go devices.CameraSettings JSON shape.
+export interface CameraSettings {
+  detect: boolean
+  record: boolean
+  recordMode: string // active_objects | motion | all
+  recordDays: number
+  snapshots: boolean
+  objects?: string[]
+  zones?: Zone[]
+}
+
 export interface Alert {
   id: string
   kind:
@@ -254,4 +272,5 @@ export type ClientMsg =
       data: { cmdId?: string; name: string; detect: boolean; record: boolean; recordDays?: number; snapshots: boolean }
     }
   | { type: 'camera.demote'; data: { cmdId?: string; name: string } }
+  | { type: 'camera.settings'; data: { cmdId?: string; name: string; settings: CameraSettings } }
   | { type: 'ping'; ts: number }

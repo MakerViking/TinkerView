@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
 import { VideoStream } from '@/components/VideoStream'
 import { usePersistentBoolean } from '@/lib/persist'
 import { DeviceMenu, type MenuAction } from '@/components/devices/DeviceMenu'
 import { AddCameraModal } from '@/components/devices/AddCameraModal'
+import { CameraSettingsModal } from '@/components/camera/CameraSettingsModal'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { cn, copyText } from '@/lib/utils'
 
 export function CameraTile({ name }: { name: string }) {
@@ -12,6 +14,9 @@ export function CameraTile({ name }: { name: string }) {
   const { send } = useWs()
   const [copied, setCopied] = useState<'' | 'rtsp' | 'http'>('')
   const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const tileRef = useRef<HTMLDivElement>(null)
   // HQ preference is remembered per camera across reloads (localStorage).
   const [hq, setHq] = usePersistentBoolean(`hq:${name}`, false)
   const streamName = hq && cam?.hasHq ? `${name}_hq` : name
@@ -19,11 +24,19 @@ export function CameraTile({ name }: { name: string }) {
   const toggle = (feature: 'detect' | 'recordings', value: boolean) =>
     send({ type: 'camera.toggle', data: { camera: name, feature, value } })
 
+  const toggleFullscreen = () => {
+    const el = tileRef.current
+    if (!el) return
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void el.requestFullscreen?.()
+  }
+
   // Management actions are only offered for UI-added (managed) cameras; the
   // pre-existing Frigate-config cameras stay read-only here.
   const menuActions: MenuAction[] = []
   if (cam?.managed) {
     menuActions.push({ label: 'Edit…', onClick: () => setEditing(true) })
+    menuActions.push({ label: 'Recording & detection…', onClick: () => setSettingsOpen(true) })
     if (cam.promoted) {
       menuActions.push({
         label: 'Disable Frigate NVR',
@@ -42,11 +55,9 @@ export function CameraTile({ name }: { name: string }) {
       })
     }
     menuActions.push({
-      label: 'Remove',
+      label: 'Delete…',
       danger: true,
-      onClick: () => {
-        if (confirm(`Remove camera ${name}?`)) send({ type: 'camera.remove', data: { name } })
-      },
+      onClick: () => setConfirmDelete(true),
     })
   }
 
@@ -66,7 +77,7 @@ export function CameraTile({ name }: { name: string }) {
   }
 
   return (
-    <div className="relative rounded-lg overflow-hidden bg-black aspect-video group">
+    <div ref={tileRef} className="relative rounded-lg overflow-hidden bg-black aspect-video group">
       <VideoStream src={streamName} className="w-full h-full object-contain bg-black" />
 
       <div className="absolute inset-x-0 top-0 flex items-center gap-2 p-2 bg-gradient-to-b from-black/70 to-transparent">
@@ -106,11 +117,34 @@ export function CameraTile({ name }: { name: string }) {
           >
             {copied === 'http' ? 'Copied ✓' : 'HTTP'}
           </button>
+          <button
+            onClick={toggleFullscreen}
+            title="Fullscreen"
+            className="text-[11px] leading-none px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20"
+          >
+            ⛶
+          </button>
           {menuActions.length > 0 && <DeviceMenu actions={menuActions} />}
         </div>
       </div>
 
       {editing && <AddCameraModal existingName={name} onClose={() => setEditing(false)} />}
+      {settingsOpen && <CameraSettingsModal name={name} onClose={() => setSettingsOpen(false)} />}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete camera ${name}`}
+          message={
+            cam?.promoted
+              ? `This removes ${name} from Frigate (Frigate will restart ~25s) and from the dashboard. This cannot be undone.`
+              : `This removes ${name} from the dashboard. This cannot be undone.`
+          }
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => send({ type: 'camera.remove', data: { name } })}
+          onClose={() => setConfirmDelete(false)}
+        />
+      )}
 
       <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-2 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition">
         <FeatureToggle label="Detect" on={cam?.detect} onChange={(v) => toggle('detect', v)} />
