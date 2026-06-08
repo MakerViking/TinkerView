@@ -11,6 +11,36 @@ const FACES_API = '/frigate/api/faces'
 const faceImg = (name: string, file: string) =>
   `/frigate/clips/faces/${encodeURIComponent(name)}/${encodeURIComponent(file)}`
 
+// toJpeg decodes an uploaded image with the browser (honoring EXIF orientation —
+// important so a sideways phone photo's face is upright) and re-encodes it as a
+// clean JPEG that Frigate's OpenCV can always read. Frigate returns a raw 500
+// ("'NoneType' has no attribute 'shape'") when cv2 can't decode the bytes — e.g.
+// HEIC/AVIF or odd encodings — so normalizing here avoids that. Large images are
+// capped at 2048px. Throws a clear message when the browser itself can't decode
+// the format (e.g. HEIC in Chrome).
+async function toJpeg(file: File): Promise<Blob> {
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  } catch {
+    throw new Error(`couldn't read "${file.name}" — use a JPG or PNG (HEIC isn't supported)`)
+  }
+  const maxDim = 2048
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height))
+  const w = Math.max(1, Math.round(bitmap.width * scale))
+  const h = Math.max(1, Math.round(bitmap.height * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas not available')
+  ctx.drawImage(bitmap, 0, 0, w, h)
+  bitmap.close()
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92))
+  if (!blob) throw new Error('failed to encode the image as JPEG')
+  return blob
+}
+
 export function FacesPanel() {
   const [faces, setFaces] = useState<FaceMap | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -160,13 +190,19 @@ function PersonCard({
     onError('')
     try {
       for (const f of Array.from(list)) {
+        const jpeg = await toJpeg(f) // normalize so Frigate's OpenCV can always decode it
         const fd = new FormData()
-        fd.append('file', f)
+        fd.append('file', jpeg, 'face.jpg')
         const r = await fetch(`${FACES_API}/${encodeURIComponent(name)}/register`, {
           method: 'POST',
           body: fd,
         })
-        if (!r.ok) throw new Error(`upload failed: HTTP ${r.status}`)
+        if (!r.ok) {
+          const body = await r.text().catch(() => '')
+          throw new Error(
+            body && body.length < 200 ? `upload failed: ${body}` : `upload failed: HTTP ${r.status}`,
+          )
+        }
       }
       onChanged()
     } catch (e) {
