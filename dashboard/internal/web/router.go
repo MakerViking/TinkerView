@@ -31,14 +31,14 @@ func Router(cfg *config.Config, h *hub.Hub, api *API, resolver TargetResolver) (
 	})
 
 	if cfg.Go2RTCURL != "" {
-		gp, err := ReverseProxy("/go2rtc", cfg.Go2RTCURL)
+		gp, err := ReverseProxy("/go2rtc", cfg.Go2RTCURL, false) // rewrite Origin (WebSocket)
 		if err != nil {
 			return nil, err
 		}
 		mux.Handle("/go2rtc/", gp)
 	}
 	if cfg.Frigate.BaseURL != "" {
-		fp, err := ReverseProxy("/frigate", cfg.Frigate.BaseURL)
+		fp, err := ReverseProxy("/frigate", cfg.Frigate.BaseURL, true) // strip Origin (Frigate CSRF guard)
 		if err != nil {
 			return nil, err
 		}
