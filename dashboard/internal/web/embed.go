@@ -50,5 +50,10 @@ func SPAHandler() (http.Handler, error) {
 
 func serveHTML(w http.ResponseWriter, b []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// index.html references hash-named bundles (index-<hash>.js). It must never be
+	// cached, or after a deploy the browser keeps loading a stale entry page that
+	// points at the OLD bundle until a manual hard-refresh. The hashed assets under
+	// /assets/ are immutable and may still be cached by the file server.
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	_, _ = w.Write(b)
 }
