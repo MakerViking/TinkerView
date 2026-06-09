@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -77,16 +78,44 @@ func (m *Manager) applyDetection(ctx context.Context, s devices.DetectionSetting
 		m.restoreBackup(ctx, backupPath)
 		return fmt.Errorf("Frigate did not come back after the detection change; restored previous config (backup: %s)", backupPath)
 	}
-	msg := fmt.Sprintf("Detection set to %q", s.Detector)
-	if s.Device != "" {
-		msg += " (" + s.Device + ")"
-	}
-	if needsHostStep(s) {
-		msg += " — if detection doesn't start, finish the host prerequisites for this option (see the Detection tab)."
-	}
-	m.notice("info", msg)
+	m.notice("info", m.detectorReport(ctx, s))
 	slog.Info("detection settings applied", "detector", s.Detector, "device", s.Device, "hwaccel", s.Hwaccel)
 	return nil
+}
+
+// detectorReport builds the success notice, polling /api/stats for a few seconds so
+// it can report the new detector's actual inference speed (which only populates once
+// the detector has processed frames — needs a detect-enabled camera sending video).
+func (m *Manager) detectorReport(ctx context.Context, s devices.DetectionSettings) string {
+	base := fmt.Sprintf("Detection set to %q", s.Detector)
+	if s.Device != "" {
+		base += " (" + s.Device + ")"
+	}
+	var best float64
+	for i := 0; i < 6; i++ { // ~12s
+		if speeds, err := m.frigate.DetectorSpeeds(ctx); err == nil {
+			for _, ms := range speeds {
+				if ms > best {
+					best = ms
+				}
+			}
+		}
+		if best > 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return base
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if best > 0 {
+		return fmt.Sprintf("%s — running at %.1f ms/inference ✅", base, best)
+	}
+	if needsHostStep(s) {
+		return base + " — loaded, but no inference yet. If it stays that way, finish the host prerequisites for this option (Detection tab)."
+	}
+	return base + " — loaded (inference speed appears once a detect-enabled camera sends frames)."
 }
 
 // needsHostStep reports whether the choice also requires a host action the dashboard

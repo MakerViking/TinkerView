@@ -151,6 +151,8 @@ export function DetectionPanel() {
         </p>
       </div>
 
+      <LiveSpeed />
+
       {s.advanced && (
         <Notice tone="warn">
           Your current Frigate config looks hand-tuned (multiple detectors or custom settings). Applying a choice here
@@ -267,6 +269,50 @@ export function DetectionPanel() {
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
       {status && <div className="text-sm text-emerald-300">{status}</div>}
+    </div>
+  )
+}
+
+// LiveSpeed polls Frigate's /api/stats (through the dashboard proxy) and shows each
+// detector's rolling inference time, so you can apply a config and watch the speed —
+// and compare configs. inference_speed stays 0 until a detect-enabled camera sends
+// frames.
+function LiveSpeed() {
+  const [speeds, setSpeeds] = useState<Record<string, number> | null>(null)
+  useEffect(() => {
+    let stop = false
+    const tick = async () => {
+      try {
+        const r = await fetch('/frigate/api/stats')
+        if (!r.ok) throw new Error()
+        const d = (await r.json()) as { detectors?: Record<string, { inference_speed?: number }> }
+        const out: Record<string, number> = {}
+        for (const [k, v] of Object.entries(d.detectors ?? {})) out[k] = v.inference_speed ?? 0
+        if (!stop) setSpeeds(out)
+      } catch {
+        if (!stop) setSpeeds(null)
+      }
+    }
+    tick()
+    const id = window.setInterval(tick, 3000)
+    return () => {
+      stop = true
+      window.clearInterval(id)
+    }
+  }, [])
+  const entries = speeds ? Object.entries(speeds) : []
+  if (!entries.length) return null
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs">
+      <div className="mb-1 font-medium text-slate-300">Live detector speed (lower = faster)</div>
+      {entries.map(([name, ms]) => (
+        <div key={name} className="flex justify-between tabular-nums">
+          <span className="text-slate-400">{name}</span>
+          <span className={ms > 0 ? 'text-emerald-300' : 'text-slate-500'}>
+            {ms > 0 ? `${ms.toFixed(1)} ms/inference` : 'idle — no frames being detected'}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }

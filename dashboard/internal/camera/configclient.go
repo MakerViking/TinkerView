@@ -111,6 +111,36 @@ func (f *FrigateConfig) backup(raw string) (string, error) {
 	return path, nil
 }
 
+// DetectorSpeeds returns each detector's rolling average inference time in
+// milliseconds from GET /api/stats (0 until the detector has processed frames).
+func (f *FrigateConfig) DetectorSpeeds(ctx context.Context) (map[string]float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL+"/api/stats", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := f.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET /api/stats: HTTP %d", resp.StatusCode)
+	}
+	var s struct {
+		Detectors map[string]struct {
+			InferenceSpeed float64 `json:"inference_speed"`
+		} `json:"detectors"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return nil, err
+	}
+	out := make(map[string]float64, len(s.Detectors))
+	for name, d := range s.Detectors {
+		out[name] = d.InferenceSpeed
+	}
+	return out, nil
+}
+
 // WaitHealthy polls GET /api/config until it returns 200 or the timeout elapses
 // (Frigate is briefly unreachable while restarting).
 func (f *FrigateConfig) WaitHealthy(ctx context.Context, timeout time.Duration) bool {
