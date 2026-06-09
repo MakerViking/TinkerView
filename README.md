@@ -52,12 +52,20 @@ docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d   # AMD GPU
 docker compose -f docker-compose.yml -f compose.cpu.yml      up -d   # safe CPU-only
 docker compose -f docker-compose.yml -f compose.pi.yml       up -d   # Raspberry Pi
 docker compose -f docker-compose.yml -f compose.windows.yml  up -d   # Windows/Docker Desktop
+# A Coral EdgeTPU stacks on any host for detection (host GPU still decodes):
+docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
 ```
 
 Open the UI: `http://<host>:5000` (Frigate) and `http://<host>:1984` (go2rtc, per-camera health).
 
 > **Tip:** start with `compose.cpu.yml` to confirm cameras connect and the dashboard
 > loads, then switch to your real GPU overlay + preset.
+
+> **Which detector/decoder for my hardware?** See the full matrix —
+> Intel iGPU/Arc/NPU, Nvidia (Pascal→RTX), AMD ROCm, Coral, Pi, CPU — in
+> [`frigate/host-presets/README.md`](frigate/host-presets/README.md). Intel `device:`
+> note: `GPU` (Gen9+), `NPU` (Core Ultra), or `CPU` (older chips — `device: GPU`
+> crashes where there's no OpenVINO GPU plugin).
 
 ---
 

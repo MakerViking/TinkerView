@@ -1,12 +1,27 @@
-# === Intel iGPU preset ======================================================
-# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
-# OpenVINO detection on the iGPU + VAAPI/QSV decode. The OpenVINO model below
-# ships INSIDE the Frigate image, so no download is needed.
+# === Intel preset (iGPU / Arc dGPU / Core Ultra NPU / CPU) ==================
+# Paste the detectors:/model:/ffmpeg: blocks below OVER the "HOST-SPECIFIC BLOCK"
+# at the top of ../config.yml. Pair with compose.intel.yml (passes /dev/dri).
+# OpenVINO detection + VAAPI/QSV decode. The model below ships INSIDE the Frigate
+# image, so NO download is needed.
+#
+# ── Pick the detector `device:` for YOUR Intel hardware ─────────────────────
+#   GPU   iGPU Gen9+ (Skylake/2015 and newer) OR an Arc dGPU (A380/A750/B580…).
+#         Fastest. THIS IS THE DEFAULT BELOW.
+#   NPU   Core Ultra "AI Boost" NPU (Meteor Lake / Lunar Lake / Arrow Lake).
+#   CPU   Universal, NEVER crashes — use on older/Atom/pre-Gen9 chips, or if you
+#         see "device GPU not found / failed to load" at startup. OpenVINO-on-CPU
+#         is still far faster than the plain `type: cpu` tflite detector.
+#   AUTO  Let OpenVINO choose (GPU if usable, else CPU). Safe but can quietly fall
+#         back to CPU if the GPU driver isn't set up — prefer an explicit device.
+# Just change the one `device:` line below; the model works on all of them.
+#
+# ⚠️ The friend's crash: `device: GPU` aborts on a chip with no OpenVINO GPU
+#    plugin (pre-Broadwell / some Atom/Celeron). On those, set device: CPU.
 
 detectors:
   ov:
     type: openvino
-    device: GPU
+    device: GPU                 # GPU | NPU | CPU | AUTO  (see guide above)
 
 model:
   width: 300
@@ -16,5 +31,11 @@ model:
   path: /openvino-model/ssdlite_mobilenet_v2.xml
   labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
+# ── Video DECODE (separate from detection) ──────────────────────────────────
+# preset-vaapi works on virtually every Intel iGPU (and AMD). On Gen10+/Arc,
+# QuickSync is often more efficient — swap to the QSV preset for your codec:
+#   preset-intel-qsv-h264   (and add a second line preset-intel-qsv-h265 for H.265)
+# Very old chips (e.g. J4125/Apollo Lake) may need the legacy driver — see
+# compose.intel.yml (LIBVA_DRIVER_NAME: i965).
 ffmpeg:
-  hwaccel_args: preset-vaapi          # gen10+/Arc: preset-intel-qsv-h264 (and -h265)
+  hwaccel_args: preset-vaapi

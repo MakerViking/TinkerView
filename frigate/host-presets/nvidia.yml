@@ -19,6 +19,14 @@
 # usable FP16/Tensor cores), and watch `nvidia-smi`. First start is SLOW (it builds +
 # caches the TensorRT engine into model_cache — several minutes).
 #
+# ── Modern / dedicated Nvidia cards (Turing RTX 20xx and newer) ─────────────
+# These have Tensor cores and ample VRAM, so go bigger/faster:
+#   - export with IMG_SIZE=320 or 640 and MODEL_SIZE=s/m for better accuracy;
+#   - set `input_dtype: float16` below (~2x throughput on Tensor cores — do NOT do
+#     this on Pascal 10xx, which has no fast FP16);
+#   - update the model path:/width:/height: to match what you exported.
+# Everything else (the -tensorrt image, the onnx detector) is identical.
+#
 # --- Export the model (run on a Docker host; needs internet). MODEL_SIZE=t (tiny)
 #     is the safe default for the 1060; use s for a touch more accuracy. -------------
 #   cd /tmp && docker build . --build-arg MODEL_SIZE=t --build-arg IMG_SIZE=320 \

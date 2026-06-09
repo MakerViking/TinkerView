@@ -1,0 +1,25 @@
+# === Google Coral EdgeTPU preset (USB or PCIe/M.2) ==========================
+# The most reliable + lowest-power detector — works alongside ANY host
+# (Intel/AMD/Nvidia/Pi). It does DETECTION only; keep your host's video DECODE
+# preset for the ffmpeg block. Pair with compose.coral.yml for device passthrough.
+#
+# Frigate uses its BUNDLED EdgeTPU model automatically — NO model: block and NO
+# download needed. Paste the detectors: block below OVER the one in ../config.yml;
+# leave (or add) the ffmpeg: hwaccel line for your host's GPU.
+
+detectors:
+  coral:
+    type: edgetpu
+    device: usb            # usb | pci (M.2/Mini-PCIe) | usb:0 / pci:0 to pin one
+    # Two Corals? add a second detector to split load:
+    # coral2:
+    #   type: edgetpu
+    #   device: pci:1
+
+# Detection runs on the Coral; DECODE stays on the host GPU. Keep the ffmpeg line
+# from your host preset — pick the ONE that matches:
+# ffmpeg:
+#   hwaccel_args: preset-vaapi          # Intel iGPU / AMD
+#   # hwaccel_args: preset-nvidia       # Nvidia
+#   # hwaccel_args: preset-rpi-64-h264  # Raspberry Pi 5
+#   # (omit ffmpeg entirely on a CPU-only host = software decode, few cams)

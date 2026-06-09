@@ -13,9 +13,13 @@
 #   docker compose -f docker-compose.yml -f compose.cpu.yml    up -d   # safe CPU-only fallback
 #   docker compose -f docker-compose.yml -f compose.pi.yml     up -d   # Raspberry Pi (arm64)
 #   docker compose -f docker-compose.yml -f compose.windows.yml up -d  # Windows / Docker Desktop
+# A Coral EdgeTPU (USB/PCIe) can be STACKED on any host for detection while that
+# host's GPU still decodes, e.g.:
+#   docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
 #
 # Then paste the matching frigate/host-presets/<host>.yml into the HOST-SPECIFIC
-# block at the top of frigate/config.yml. See README.md.
+# block at the top of frigate/config.yml. Full hardware matrix + how to choose a
+# detector vs decoder: frigate/host-presets/README.md.
 # =============================================================================
 
 services:

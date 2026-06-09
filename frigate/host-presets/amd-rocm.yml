@@ -1,6 +1,25 @@
 # === AMD GPU (ROCm) preset ==================================================
-# Paste this OVER the "HOST-SPECIFIC BLOCK" at the top of ../config.yml.
-# Requires the -rocm image (see compose.amd-rocm.yml). VAAPI decode + ROCm detect.
+# Paste the detectors:/model:/ffmpeg: blocks below OVER the "HOST-SPECIFIC BLOCK"
+# at the top of ../config.yml. Requires the -rocm image + device passthrough —
+# see compose.amd-rocm.yml. VAAPI decode + ROCm object detection.
+#
+# ── Which AMD hardware ──────────────────────────────────────────────────────
+#   Dedicated Radeon (RDNA2/RDNA3: RX 6000/7000, or Instinct) → ROCm works well.
+#   APU / iGPU (Ryzen "G", 680M/780M, Steam-Deck-class) → ROCm support is spotty;
+#     if detection won't start, fall back to OpenVINO-on-CPU or a Coral instead
+#     (host-presets/coral.yml) and keep VAAPI for decode below.
+#
+# ⚠️ ROCm often MISDETECTS consumer cards and aborts. If you see "gfx … not
+#    supported", set HSA_OVERRIDE_GFX_VERSION in compose.amd-rocm.yml to your
+#    card's nearest supported GFX:
+#      RDNA3 (RX 7000)            -> 11.0.0
+#      RDNA2 (RX 6000)            -> 10.3.0
+#      RDNA1 (RX 5000)            -> 10.3.0
+#      Vega / Radeon VII         -> 9.0.0
+#
+# The yolo-nas ONNX is NOT bundled. Place yolo_nas_s.onnx in
+# ./frigate/model_cache/ (download per the Frigate "Models" docs / the YOLO-NAS
+# notebook) before first start, or detection will fail to load.
 
 detectors:
   rocm:
@@ -15,5 +34,7 @@ model:
   path: /config/model_cache/yolo_nas_s.onnx
   labelmap_path: /labelmap/coco-80.txt
 
+# Decode is VAAPI (same path as Intel — both use /dev/dri). AMF/VCN encode is not
+# used by Frigate; VAAPI covers decode for the printer-cam transcode too.
 ffmpeg:
   hwaccel_args: preset-vaapi

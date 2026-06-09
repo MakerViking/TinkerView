@@ -1,0 +1,22 @@
+# -----------------------------------------------------------------------------
+# Google Coral EdgeTPU overlay (USB or PCIe/M.2). The Coral does DETECTION; pair
+# it with a host overlay for DECODE. Compose concatenates device lists, so stack
+# both overlays, e.g. Coral detect + Intel decode:
+#   docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
+# Or standalone on a CPU box (software decode):
+#   docker compose -f docker-compose.yml -f compose.coral.yml up -d
+# Then in frigate/config.yml use host-presets/coral.yml's detector block and keep
+# your host's ffmpeg hwaccel line (from its preset).
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    devices:
+      # USB Coral (Coral USB Accelerator):
+      - /dev/bus/usb:/dev/bus/usb
+      # PCIe / M.2 Coral — comment USB above; needs the gasket/apex driver on the
+      # HOST so /dev/apex_0 exists (Unraid: the Coral plugin):
+      # - /dev/apex_0:/dev/apex_0
+    # The USB Coral re-enumerates to a new USB address on its first inference. If
+    # it isn't found right after a fresh plug, uncomment privileged:
+    # privileged: true
