@@ -129,26 +129,6 @@ export function AddPrinterModal({
                 placeholder="(optional)"
               />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Camera stream" hint="optional">
-                <select className={inputCls} value={form.camera} onChange={(e) => set('camera', e.target.value)}>
-                  <option value="">(none)</option>
-                  {cameras.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Web UI URL" hint="optional; defaults to base URL">
-                <input
-                  className={inputCls}
-                  value={form.uiUrl}
-                  onChange={(e) => set('uiUrl', e.target.value)}
-                  placeholder="(optional)"
-                />
-              </Field>
-            </div>
             <Field
               label="Macro buttons"
               hint="comma-separated gcode macros to show as buttons (e.g. T0,T1,T2,T3,M600). Blank = a safe default set."
@@ -246,6 +226,30 @@ export function AddPrinterModal({
             </Field>
           </div>
         )}
+
+        {/* Camera + Web UI apply to every printer kind: attach ANY camera you've
+            added (printer-mounted or a standalone IP/USB-restreamed cam), not just a
+            printer-attached one. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Camera" hint="optional; any camera you've set up">
+            <select className={inputCls} value={form.camera} onChange={(e) => set('camera', e.target.value)}>
+              <option value="">(none)</option>
+              {cameras.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Web UI URL" hint="optional; defaults to base URL">
+            <input
+              className={inputCls}
+              value={form.uiUrl}
+              onChange={(e) => set('uiUrl', e.target.value)}
+              placeholder="(optional)"
+            />
+          </Field>
+        </div>
 
         <Actions onCancel={onClose} submitLabel={editing ? 'Save' : 'Add printer'} />
       </form>
