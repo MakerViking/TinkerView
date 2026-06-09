@@ -1,10 +1,19 @@
 // Package prusalink implements adapter.Printer for Prusa printers via the native
-// PrusaLink HTTP API (/api/v1, firmware 4.7.0+) — the same API Home Assistant's
-// prusalink integration uses. Live state is polled from GET /api/v1/status (+ a
-// GET /api/v1/job on job change for the filename); job control (pause/resume/
-// cancel) is the ONLY control PrusaLink exposes over /api/v1. Auth is HTTP Digest
-// (username "maker", password = the PrusaLink password), implemented inline since
-// Go's stdlib has no Digest support.
+// PrusaLink HTTP API. It speaks two dialects and auto-detects which the printer
+// supports, locking onto the first that answers:
+//
+//   - v1 (firmware 4.7.0+): GET /api/v1/status (+ /api/v1/job on job change), HTTP
+//     Digest auth (username "maker", password = the PrusaLink password/API key) —
+//     the same API Home Assistant's prusalink integration uses.
+//   - legacy (older firmware / OctoPrint-compat): GET /api/printer (+ /api/job),
+//     gated by an X-Api-Key header with the same key. Reached as a fallback when
+//     /api/v1 answers 401/403/404 (e.g. a Prusa XL on firmware whose /api/v1 path
+//     isn't served), so the printer still shows up. Temps come from the
+//     temperature.tool0/bed block (PrusaLink's telemetry.temp-nozzle reads a bogus
+//     ~6 C while idle).
+//
+// Digest is implemented inline since Go's stdlib has no Digest support. Job control
+// (pause/resume/cancel) is the ONLY control PrusaLink exposes on either dialect.
 //
 // Scope: built-in PrusaLink (MK4 / MK3.9 / MK3.5 / XL / MINI / Core One) and
 // PrusaLink-on-a-Pi (MK2.5/MK3). A Prusa running real OctoPrint on a Pi should use
@@ -15,6 +24,7 @@
 package prusalink
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/rand"
@@ -61,6 +71,7 @@ type Printer struct {
 	dHave      bool
 
 	mu         sync.Mutex
+	apiMode    string // "" (undetected) | "v1" (/api/v1 Digest) | "legacy" (/api/printer X-Api-Key)
 	online     bool
 	offlineMsg string
 	pstate     adapter.PState
@@ -118,6 +129,10 @@ func (p *Printer) Run(ctx context.Context) {
 	}
 }
 
+// poll dispatches to the detected dialect. While undetected it tries v1; on a
+// 401/403/404 (v1 not served / Digest refused) it falls back to the legacy API and
+// locks onto whichever answers. A transport failure (unreachable) does NOT switch
+// dialects — it's the network, not the protocol.
 func (p *Printer) poll(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -127,17 +142,42 @@ func (p *Printer) poll(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
-	var st plStatus
-	if code, err := p.do(cctx, http.MethodGet, "/api/v1/status", &st); err != nil {
-		p.setOffline(offlineReason(code, err))
+	if p.getMode() == "legacy" {
+		if ok, code, err := p.pollLegacy(cctx); !ok {
+			p.setOffline(offlineReason(code, err))
+		}
 		return
 	}
+	ok, code, err := p.pollV1(cctx)
+	if ok {
+		p.setMode("v1")
+		return
+	}
+	if shouldFallback(code) {
+		if ok2, code2, err2 := p.pollLegacy(cctx); ok2 {
+			if p.getMode() != "legacy" {
+				slog.Info("prusalink: /api/v1 unavailable, using legacy /api/printer (X-Api-Key)", "printer", p.id, "v1_status", code)
+			}
+			p.setMode("legacy")
+			return
+		} else {
+			p.setOffline(offlineReason(code2, err2))
+			return
+		}
+	}
+	p.setOffline(offlineReason(code, err))
+}
 
+// pollV1 polls the /api/v1 dialect (Digest). Returns ok=false with the HTTP status
+// so the caller can decide whether to fall back.
+func (p *Printer) pollV1(ctx context.Context) (bool, int, error) {
+	var st plStatus
+	code, err := p.do(ctx, http.MethodGet, "/api/v1/status", &st)
+	if err != nil {
+		return false, code, err
+	}
 	pst := classifyPState(st.Printer.State)
-	jobID := 0
-	progress := 0.0
-	eta := 0
-	elapsed := 0
+	jobID, progress, eta, elapsed := 0, 0.0, 0, 0
 	if st.Job != nil {
 		jobID = st.Job.ID
 		progress = float64(st.Job.Progress)
@@ -147,46 +187,105 @@ func (p *Printer) poll(ctx context.Context) {
 		elapsed = st.Job.TimePrinting
 	}
 
-	// status.job carries no filename — fetch /api/v1/job only when the job id changes.
+	// status.job carries no filename — fetch /api/v1/job only when the job id changes,
+	// keeping the previous name on a transient miss (don't strand the job nameless).
 	p.mu.Lock()
-	needFile := jobID != 0 && jobID != p.lastJobID
+	filename := p.filename
+	lastJobID := p.lastJobID
 	p.mu.Unlock()
-	filename := ""
-	gotFile := false
-	if needFile {
+	switch {
+	case jobID == 0:
+		filename = ""
+		p.mu.Lock()
+		p.lastJobID = 0
+		p.mu.Unlock()
+	case jobID != lastJobID:
 		var jb plJob
-		// 200 = job present; 204 = job vanished between /status and /job (no body).
-		if code, err := p.do(cctx, http.MethodGet, "/api/v1/job", &jb); err == nil && code == http.StatusOK {
+		if c, e := p.do(ctx, http.MethodGet, "/api/v1/job", &jb); e == nil && c == http.StatusOK {
 			filename = jb.File.DisplayName
 			if filename == "" {
 				filename = jb.File.Name
 			}
-			gotFile = true
+			p.mu.Lock()
+			p.lastJobID = jobID
+			p.mu.Unlock()
 		}
-		// On a 204/transient failure gotFile stays false so we DON'T advance lastJobID
-		// below — the next poll retries instead of stranding the job with no name.
 	}
 
+	nozzle := adapter.Heater{Actual: float64(st.Printer.TempNozzle), Target: float64(st.Printer.TargetNozzle)}
+	bed := adapter.Heater{Actual: float64(st.Printer.TempBed), Target: float64(st.Printer.TargetBed)}
+	p.commit(pst, nozzle, bed, progress, eta, elapsed, jobID, filename)
+	return true, code, nil
+}
+
+// pollLegacy polls the legacy OctoPrint-compatible dialect (X-Api-Key). /api/job is
+// best-effort (null when idle).
+func (p *Printer) pollLegacy(ctx context.Context) (bool, int, error) {
+	var pr legacyPrinter
+	code, err := p.legacyGet(ctx, "/api/printer", &pr)
+	if err != nil {
+		return false, code, err
+	}
+	var jb legacyJob
+	_, _ = p.legacyGet(ctx, "/api/job", &jb) // null/idle is fine
+
+	pst := classifyLegacy(pr.State.Flags)
+	// telemetry.temp-nozzle is unreliable (~6 C idle); the temperature.* block is correct.
+	nozzle := adapter.Heater{Actual: float64(pr.Temperature.Tool0.Actual), Target: float64(pr.Temperature.Tool0.Target)}
+	bed := adapter.Heater{Actual: float64(pr.Temperature.Bed.Actual), Target: float64(pr.Temperature.Bed.Target)}
+
+	filename := ""
+	if jb.Job != nil {
+		filename = jb.Job.File.DisplayName
+		if filename == "" {
+			filename = jb.Job.File.Name
+		}
+	}
+	progress, eta, elapsed := 0.0, 0, 0
+	if jb.Progress != nil {
+		// OctoPrint-compat completion is 0..100 already — no scaling (verified for the
+		// octoprint adapter; a ×100 here would inflate a just-started 0.5% to 50%).
+		progress = clampPct(float64(jb.Progress.Completion))
+		elapsed = int(jb.Progress.PrintTime)
+		if jb.Progress.PrintTimeLeft > 0 {
+			eta = int(jb.Progress.PrintTimeLeft)
+		}
+	}
+	// Legacy control posts a command (no numeric job id); use 1 as an "active" marker
+	// so any id!=0 guard passes — Command routes to legacyCommand in legacy mode.
+	jobID := 0
+	if jb.Job != nil {
+		jobID = 1
+	}
+	p.commit(pst, nozzle, bed, progress, eta, elapsed, jobID, filename)
+	return true, http.StatusOK, nil
+}
+
+// commit stores the mapped state under the lock and publishes it.
+func (p *Printer) commit(pst adapter.PState, nozzle, bed adapter.Heater, progress float64, eta, elapsed, jobID int, filename string) {
 	p.mu.Lock()
 	p.online = true
 	p.offlineMsg = ""
 	p.pstate = pst
-	p.nozzle = adapter.Heater{Actual: float64(st.Printer.TempNozzle), Target: float64(st.Printer.TargetNozzle)}
-	p.bed = adapter.Heater{Actual: float64(st.Printer.TempBed), Target: float64(st.Printer.TargetBed)}
+	p.nozzle = nozzle
+	p.bed = bed
 	p.progressPct = progress
 	p.etaSec = eta
 	p.elapsedSec = elapsed
 	p.jobID = jobID
-	if jobID == 0 {
-		p.filename = ""
-		p.lastJobID = 0
-	} else if gotFile {
-		p.filename = filename
-		p.lastJobID = jobID
-	}
+	p.filename = filename
 	out := p.toState()
 	p.mu.Unlock()
 	p.publish(out)
+}
+
+func (p *Printer) getMode() string  { p.mu.Lock(); defer p.mu.Unlock(); return p.apiMode }
+func (p *Printer) setMode(m string) { p.mu.Lock(); p.apiMode = m; p.mu.Unlock() }
+
+// shouldFallback reports whether a v1 failure means "try the legacy API" (the path
+// isn't served or Digest was refused) rather than "the printer is unreachable".
+func shouldFallback(code int) bool {
+	return code == http.StatusUnauthorized || code == http.StatusForbidden || code == http.StatusNotFound
 }
 
 // offlineReason turns a failed /api/v1/status call into a user-facing message that
@@ -269,6 +368,9 @@ func classifyPState(state string) adapter.PState {
 // ----- control (job only) -----
 
 func (p *Printer) Command(ctx context.Context, cmd adapter.PrinterCommand) error {
+	if p.getMode() == "legacy" {
+		return p.legacyCommand(ctx, cmd)
+	}
 	id := p.currentJobID()
 	if id == 0 {
 		return fmt.Errorf("no active job to %s", cmd)
@@ -367,6 +469,130 @@ type plJob struct {
 		Name        string `json:"name"`         // short 8.3
 		DisplayName string `json:"display_name"` // human-readable (preferred)
 	} `json:"file"`
+}
+
+// ----- legacy (OctoPrint-compatible) dialect: /api/printer + /api/job, X-Api-Key -----
+
+type legacyPrinter struct {
+	Temperature struct {
+		Tool0 legacyHeater `json:"tool0"`
+		Bed   legacyHeater `json:"bed"`
+	} `json:"temperature"`
+	State struct {
+		Text  string      `json:"text"`
+		Flags legacyFlags `json:"flags"`
+	} `json:"state"`
+}
+
+type legacyFlags struct {
+	Paused   bool `json:"paused"`
+	Printing bool `json:"printing"`
+	Error    bool `json:"error"`
+}
+
+type legacyHeater struct {
+	Actual flexFloat `json:"actual"`
+	Target flexFloat `json:"target"`
+}
+
+type legacyJob struct {
+	Job *struct {
+		File struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"display_name"`
+		} `json:"file"`
+	} `json:"job"`
+	Progress *struct {
+		Completion    flexFloat `json:"completion"` // 0..100
+		PrintTime     float64   `json:"printTime"`
+		PrintTimeLeft float64   `json:"printTimeLeft"`
+	} `json:"progress"`
+}
+
+// classifyLegacy maps the OctoPrint-compat state flags to the normalized PState.
+// The legacy API has no distinct complete/cancelled flag (it returns to operational),
+// so a finished/stopped print reads as Idle.
+func classifyLegacy(f legacyFlags) adapter.PState {
+	switch {
+	case f.Printing:
+		return adapter.Printing
+	case f.Paused:
+		return adapter.Paused
+	case f.Error:
+		return adapter.Errored
+	default:
+		return adapter.Idle
+	}
+}
+
+func clampPct(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+// legacyGet issues an X-Api-Key GET and decodes the body, returning the HTTP status
+// (so the dispatcher can tell auth/not-found from a transport error).
+func (p *Printer) legacyGet(ctx context.Context, path string, out any) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.httpBase+path, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("X-Api-Key", p.pass)
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode, fmt.Errorf("GET %s: HTTP %d", path, resp.StatusCode)
+	}
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return resp.StatusCode, err
+		}
+	}
+	return resp.StatusCode, nil
+}
+
+// legacyCommand issues pause/resume/cancel via the OctoPrint-compatible POST /api/job.
+func (p *Printer) legacyCommand(ctx context.Context, cmd adapter.PrinterCommand) error {
+	var body any
+	switch cmd {
+	case adapter.CmdPause:
+		body = map[string]string{"command": "pause", "action": "pause"}
+	case adapter.CmdResume:
+		body = map[string]string{"command": "pause", "action": "resume"}
+	case adapter.CmdCancel:
+		body = map[string]string{"command": "cancel"}
+	default:
+		return fmt.Errorf("unsupported command %q", cmd)
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.httpBase+"/api/job", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Api-Key", p.pass)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("POST /api/job: HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // ----- HTTP with inline Digest auth -----

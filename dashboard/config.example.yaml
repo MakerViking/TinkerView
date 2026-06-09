@@ -53,10 +53,11 @@ printers:
     base_url: "http://192.168.1.22"
     api_key: "CHANGE-ME-OCTOPRINT-APP-KEY"
   # --- Prusa (PrusaLink — MK4/MK3.9/MK3.5/XL/MINI/Core One, or MK2.5/MK3 on a Pi) ---
-  # Native /api/v1 with HTTP Digest auth (user "maker"). api_key = the PrusaLink
-  # password (printer: Settings > Network > PrusaLink). Read + pause/resume/cancel
-  # only — PrusaLink exposes no set-temp/move/gcode over /api/v1. (A Prusa running
-  # real OctoPrint on a Pi should use kind: octoprint instead.)
+  # api_key = the PrusaLink password / API key (printer: Settings > Network >
+  # PrusaLink). The adapter auto-detects the API: it tries /api/v1 (HTTP Digest,
+  # user "maker") and falls back to the legacy /api/printer (X-Api-Key) on older
+  # firmware. Read + pause/resume/cancel only (PrusaLink exposes no set-temp/move/
+  # gcode). A Prusa running real OctoPrint on a Pi should use kind: octoprint.
   - id: mk4
     kind: prusalink
     name: "Prusa MK4"

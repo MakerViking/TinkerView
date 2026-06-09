@@ -104,6 +104,58 @@ func TestFlexFloatStatusDecode(t *testing.T) {
 	}
 }
 
+func TestClassifyLegacy(t *testing.T) {
+	if classifyLegacy(legacyFlags{Printing: true}) != adapter.Printing {
+		t.Error("printing")
+	}
+	if classifyLegacy(legacyFlags{Paused: true}) != adapter.Paused {
+		t.Error("paused")
+	}
+	if classifyLegacy(legacyFlags{Error: true}) != adapter.Errored {
+		t.Error("error")
+	}
+	if classifyLegacy(legacyFlags{}) != adapter.Idle {
+		t.Error("idle default")
+	}
+	// printing takes precedence over a stale paused flag.
+	if classifyLegacy(legacyFlags{Printing: true, Paused: true}) != adapter.Printing {
+		t.Error("printing should win")
+	}
+}
+
+func TestShouldFallback(t *testing.T) {
+	for _, c := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		if !shouldFallback(c) {
+			t.Errorf("status %d should trigger legacy fallback", c)
+		}
+	}
+	for _, c := range []int{0, http.StatusOK, http.StatusInternalServerError, http.StatusBadGateway} {
+		if shouldFallback(c) {
+			t.Errorf("status %d should NOT trigger fallback (network/server, not protocol)", c)
+		}
+	}
+}
+
+func TestLegacyJobDecode(t *testing.T) {
+	// completion is 0..100 OctoPrint-compat and must pass through unscaled; temps
+	// tolerate a stringified value.
+	raw := `{"job":{"file":{"name":"a.gco","display_name":"Benchy.gcode"}},
+	         "progress":{"completion":42.5,"printTime":600,"printTimeLeft":1200}}`
+	var jb legacyJob
+	if err := json.Unmarshal([]byte(raw), &jb); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if jb.Job == nil || jb.Job.File.DisplayName != "Benchy.gcode" {
+		t.Fatalf("filename: %+v", jb.Job)
+	}
+	if clampPct(float64(jb.Progress.Completion)) != 42.5 {
+		t.Errorf("completion should pass through 0..100, got %v", jb.Progress.Completion)
+	}
+	if clampPct(150) != 100 || clampPct(-5) != 0 {
+		t.Error("clampPct bounds")
+	}
+}
+
 func TestOfflineReason(t *testing.T) {
 	if m := offlineReason(http.StatusUnauthorized, nil); !strings.Contains(m, "401") || !strings.Contains(m, "maker") {
 		t.Errorf("401 reason should mention auth + maker: %q", m)
