@@ -197,8 +197,12 @@ export function AddPrinterModal({
               />
             </Field>
             <Field
-              label="Password"
-              hint={editing ? 'leave blank to keep current' : 'PrusaLink password (printer: Settings → Network → PrusaLink)'}
+              label="Password / API key"
+              hint={
+                editing
+                  ? 'leave blank to keep current'
+                  : 'the PrusaLink password (a.k.a. API key) — printer: Settings → Network → PrusaLink. The login name is always "maker".'
+              }
             >
               <input
                 className={inputCls}

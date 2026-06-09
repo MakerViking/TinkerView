@@ -1,6 +1,8 @@
 package prusalink
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -71,6 +73,63 @@ func TestParseChallenge(t *testing.T) {
 	}
 	if parseChallenge("Basic realm=x") != nil {
 		t.Error("non-Digest header should return nil")
+	}
+}
+
+func TestFlexFloatStatusDecode(t *testing.T) {
+	// A firmware that stringifies a telemetry value must NOT fail the whole decode
+	// (which would drop the printer to offline). Mixed number/string here.
+	raw := `{"printer":{"state":"PRINTING","temp_nozzle":"214.9","target_nozzle":215,"temp_bed":59.5},
+	         "job":{"id":5,"progress":"42.0","time_remaining":520,"time_printing":60}}`
+	var st plStatus
+	if err := json.Unmarshal([]byte(raw), &st); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if float64(st.Printer.TempNozzle) != 214.9 {
+		t.Errorf("temp_nozzle (string) = %v", st.Printer.TempNozzle)
+	}
+	if float64(st.Printer.TargetNozzle) != 215 || float64(st.Printer.TempBed) != 59.5 {
+		t.Errorf("numeric temps wrong: %+v", st.Printer)
+	}
+	if st.Job == nil || float64(st.Job.Progress) != 42.0 {
+		t.Errorf("progress (string) wrong: %+v", st.Job)
+	}
+	// Blank/null tolerated as 0.
+	var st2 plStatus
+	if err := json.Unmarshal([]byte(`{"printer":{"state":"IDLE","temp_nozzle":""}}`), &st2); err != nil {
+		t.Fatalf("blank temp should decode: %v", err)
+	}
+	if float64(st2.Printer.TempNozzle) != 0 {
+		t.Errorf("blank temp should be 0, got %v", st2.Printer.TempNozzle)
+	}
+}
+
+func TestOfflineReason(t *testing.T) {
+	if m := offlineReason(http.StatusUnauthorized, nil); !strings.Contains(m, "401") || !strings.Contains(m, "maker") {
+		t.Errorf("401 reason should mention auth + maker: %q", m)
+	}
+	if m := offlineReason(http.StatusOK, errInvalid); !strings.Contains(strings.ToLower(m), "unexpected response") {
+		t.Errorf("200+decode-error reason wrong: %q", m)
+	}
+	if m := offlineReason(0, errInvalid); !strings.Contains(strings.ToLower(m), "unreachable") {
+		t.Errorf("transport reason wrong: %q", m)
+	}
+}
+
+var errInvalid = errInvalidT("boom")
+
+type errInvalidT string
+
+func (e errInvalidT) Error() string { return string(e) }
+
+func TestAuthHeaderMD5Sess(t *testing.T) {
+	sess := &Printer{pass: "secret"}
+	sess.setChallenge(`Digest realm="r", nonce="n", qop="auth", algorithm=MD5-sess`)
+	h := sess.authHeader("GET", "/api/v1/status")
+	for _, want := range []string{"algorithm=MD5-sess", "cnonce=", `response="`, "qop=auth"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("MD5-sess header missing %q\n  got: %s", want, h)
+		}
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -127,8 +128,8 @@ func (p *Printer) poll(ctx context.Context) {
 	defer cancel()
 
 	var st plStatus
-	if _, err := p.do(cctx, http.MethodGet, "/api/v1/status", &st); err != nil {
-		p.setOffline("PrusaLink unreachable")
+	if code, err := p.do(cctx, http.MethodGet, "/api/v1/status", &st); err != nil {
+		p.setOffline(offlineReason(code, err))
 		return
 	}
 
@@ -139,7 +140,7 @@ func (p *Printer) poll(ctx context.Context) {
 	elapsed := 0
 	if st.Job != nil {
 		jobID = st.Job.ID
-		progress = st.Job.Progress
+		progress = float64(st.Job.Progress)
 		if st.Job.TimeRemaining != nil {
 			eta = *st.Job.TimeRemaining
 		}
@@ -170,8 +171,8 @@ func (p *Printer) poll(ctx context.Context) {
 	p.online = true
 	p.offlineMsg = ""
 	p.pstate = pst
-	p.nozzle = adapter.Heater{Actual: st.Printer.TempNozzle, Target: st.Printer.TargetNozzle}
-	p.bed = adapter.Heater{Actual: st.Printer.TempBed, Target: st.Printer.TargetBed}
+	p.nozzle = adapter.Heater{Actual: float64(st.Printer.TempNozzle), Target: float64(st.Printer.TargetNozzle)}
+	p.bed = adapter.Heater{Actual: float64(st.Printer.TempBed), Target: float64(st.Printer.TargetBed)}
 	p.progressPct = progress
 	p.etaSec = eta
 	p.elapsedSec = elapsed
@@ -186,6 +187,25 @@ func (p *Printer) poll(ctx context.Context) {
 	out := p.toState()
 	p.mu.Unlock()
 	p.publish(out)
+}
+
+// offlineReason turns a failed /api/v1/status call into a user-facing message that
+// distinguishes the real cause — so an operator who can't see the logs (e.g. a
+// friend running their own instance) can tell auth from network from a schema/
+// firmware mismatch right from the printer tile. do() returns the HTTP status
+// alongside the error: code 0 = transport failure, 401 = auth, 200 = the request
+// succeeded but the JSON didn't decode (an unexpected response shape).
+func offlineReason(code int, err error) string {
+	switch {
+	case code == http.StatusUnauthorized:
+		return "PrusaLink rejected the credentials (HTTP 401) — check the password (it's the PrusaLink API key; username is always \"maker\")"
+	case code == http.StatusOK:
+		return "PrusaLink returned an unexpected response format: " + err.Error()
+	case code >= 400:
+		return fmt.Sprintf("PrusaLink error: HTTP %d", code)
+	default:
+		return "PrusaLink unreachable: " + err.Error()
+	}
 }
 
 func (p *Printer) setOffline(msg string) {
@@ -291,18 +311,54 @@ type plStatus struct {
 }
 
 type plStatusPrinter struct {
-	State        string  `json:"state"` // IDLE|BUSY|PRINTING|PAUSED|FINISHED|STOPPED|ERROR|ATTENTION|READY
-	TempNozzle   float64 `json:"temp_nozzle"`
-	TargetNozzle float64 `json:"target_nozzle"`
-	TempBed      float64 `json:"temp_bed"`
-	TargetBed    float64 `json:"target_bed"`
+	State        string    `json:"state"` // IDLE|BUSY|PRINTING|PAUSED|FINISHED|STOPPED|ERROR|ATTENTION|READY
+	TempNozzle   flexFloat `json:"temp_nozzle"`
+	TargetNozzle flexFloat `json:"target_nozzle"`
+	TempBed      flexFloat `json:"temp_bed"`
+	TargetBed    flexFloat `json:"target_bed"`
 }
 
 type plStatusJob struct {
-	ID            int     `json:"id"`
-	Progress      float64 `json:"progress"`       // 0..100
-	TimeRemaining *int    `json:"time_remaining"` // seconds, nullable
-	TimePrinting  int     `json:"time_printing"`  // seconds elapsed
+	ID            int       `json:"id"`
+	Progress      flexFloat `json:"progress"`       // 0..100
+	TimeRemaining *int      `json:"time_remaining"` // seconds, nullable
+	TimePrinting  int       `json:"time_printing"`  // seconds elapsed
+}
+
+// flexFloat accepts either a JSON number or a quoted-number string. PrusaLink's
+// /api/v1 normally returns numbers, but tolerating a stringified telemetry value
+// means one oddly-typed field on an unfamiliar firmware can't fail the whole
+// status decode (which would otherwise drop the printer to "offline"). A blank or
+// null value decodes to 0.
+type flexFloat float64
+
+func (f *flexFloat) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(string(b))
+	if s == "" || s == "null" {
+		return nil
+	}
+	if s[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		str = strings.TrimSpace(str)
+		if str == "" {
+			return nil
+		}
+		v, err := strconv.ParseFloat(str, 64)
+		if err != nil {
+			return err
+		}
+		*f = flexFloat(v)
+		return nil
+	}
+	var v float64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*f = flexFloat(v)
+	return nil
 }
 
 type plJob struct {
@@ -372,6 +428,12 @@ func (p *Printer) authHeader(method, uri string) string {
 	nc := fmt.Sprintf("%08x", p.dNC)
 	cnonce := randHex(8)
 	ha1 := md5hex(digestUser + ":" + p.dRealm + ":" + p.pass)
+	// MD5-sess folds the nonce + client nonce into HA1. Plain MD5 (what current
+	// PrusaLink uses) leaves HA1 as-is; handling -sess too guards against a firmware
+	// build that negotiates it (otherwise every request would 401 → "offline").
+	if strings.EqualFold(p.dAlgorithm, "MD5-sess") {
+		ha1 = md5hex(ha1 + ":" + p.dNonce + ":" + cnonce)
+	}
 	ha2 := md5hex(method + ":" + uri)
 
 	qop := ""
