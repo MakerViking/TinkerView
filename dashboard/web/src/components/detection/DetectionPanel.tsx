@@ -27,21 +27,34 @@ function deviceFor(detector: string): string {
 }
 
 // hostSteps returns the host-level prerequisites the dashboard CANNOT perform for a
-// given choice (it only writes Frigate's config). CPU and OpenVINO-on-CPU need none.
-function hostSteps(s: DetectionSettings): { ok: boolean; lines: string[] } {
+// given choice (it only writes Frigate's config). These are ONE-TIME: once the host
+// has the image/device/model, switching back later is just Apply. `active` is the
+// detector currently running — when the selection matches it, the host is already set
+// up (the image + model don't get removed by switching away). CPU and OpenVINO-on-CPU
+// never need anything.
+function hostSteps(s: DetectionSettings, active: string): { ok: boolean; oneTime?: boolean; lines: string[] } {
+  if (s.detector === 'cpu')
+    return { ok: true, lines: ['Nothing else needed — boots anywhere. (Test-only: keep to 1–2 low-fps cameras.)'] }
+  if (s.detector === 'openvino' && (s.device ?? '').toUpperCase() === 'CPU')
+    return { ok: true, lines: ['Nothing else needed — runs on the CPU via OpenVINO with the bundled model.'] }
+  if (s.detector === active)
+    return {
+      ok: true,
+      lines: [
+        "This is the detector running now — the image, device and model are already in place, and they stay even if you switch away. Just Apply (it re-asserts the config; no manual editing).",
+      ],
+    }
   switch (s.detector) {
-    case 'cpu':
-      return { ok: true, lines: ['Nothing else needed — boots anywhere. (Test-only: keep to 1–2 low-fps cameras.)'] }
     case 'openvino':
-      if ((s.device ?? '').toUpperCase() === 'CPU')
-        return { ok: true, lines: ['Nothing else needed — runs on the CPU via OpenVINO with the bundled model.'] }
       return {
         ok: false,
+        oneTime: true,
         lines: ['Recreate Frigate so the iGPU is passed in:', 'docker compose -f docker-compose.yml -f compose.intel.yml up -d'],
       }
     case 'edgetpu':
       return {
         ok: false,
+        oneTime: true,
         lines: [
           'Recreate Frigate so the Coral device is passed in:',
           'docker compose -f docker-compose.yml -f compose.coral.yml up -d',
@@ -51,6 +64,7 @@ function hostSteps(s: DetectionSettings): { ok: boolean; lines: string[] } {
     case 'onnx':
       return {
         ok: false,
+        oneTime: true,
         lines: [
           '1) In .env set FRIGATE_IMAGE=ghcr.io/blakeblackshear/frigate:0.17.1-tensorrt and recreate with compose.nvidia.yml (the plain image runs ONNX on CPU only).',
           '2) Export the .onnx into frigate/model_cache/ and set the model path below.',
@@ -60,6 +74,7 @@ function hostSteps(s: DetectionSettings): { ok: boolean; lines: string[] } {
     case 'rocm':
       return {
         ok: false,
+        oneTime: true,
         lines: [
           '1) Use the -rocm image + devices: recreate with compose.amd-rocm.yml (set HSA_OVERRIDE_GFX_VERSION if your card misdetects).',
           '2) Place the yolo-nas .onnx in frigate/model_cache/ and set the model path below.',
@@ -69,6 +84,7 @@ function hostSteps(s: DetectionSettings): { ok: boolean; lines: string[] } {
     case 'hailo8l':
       return {
         ok: false,
+        oneTime: true,
         lines: ['Raspberry Pi 5 with a Hailo-8/8L AI HAT; recreate with compose.pi.yml (passes /dev/hailo0).'],
       }
     default:
@@ -78,6 +94,9 @@ function hostSteps(s: DetectionSettings): { ok: boolean; lines: string[] } {
 
 export function DetectionPanel() {
   const [s, setS] = useState<DetectionSettings | null>(null)
+  // active = the detector Frigate is running now (from the last load); when the
+  // selection matches it, the host is already set up.
+  const [active, setActive] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -94,7 +113,12 @@ export function DetectionPanel() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return (await r.json()) as DetectionSettings
       })
-      .then((d) => d && setS(d))
+      .then((d) => {
+        if (d) {
+          setS(d)
+          setActive(d.detector)
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }
   useEffect(load, [])
@@ -137,7 +161,7 @@ export function DetectionPanel() {
   }
 
   const isModelDetector = s.detector === 'onnx' || s.detector === 'rocm'
-  const steps = hostSteps(s)
+  const steps = hostSteps(s, active)
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
@@ -241,7 +265,13 @@ export function DetectionPanel() {
           (steps.ok ? 'border-emerald-800 bg-emerald-950/30 text-emerald-200' : 'border-amber-800 bg-amber-950/30 text-amber-200')
         }
       >
-        <div className="mb-1 font-medium">{steps.ok ? 'Host prerequisites: none ✅' : 'Host prerequisites (do these on the host)'}</div>
+        <div className="mb-1 font-medium">
+          {steps.ok
+            ? s.detector === active && s.detector !== 'cpu'
+              ? 'Already set up on this host ✅'
+              : 'Host prerequisites: none ✅'
+            : 'One-time host setup (skip if this host already has it)'}
+        </div>
         {steps.lines.map((l, i) =>
           l.startsWith('docker compose') || l.includes('FRIGATE_IMAGE=') ? (
             <code key={i} className="mt-1 block whitespace-pre-wrap break-all rounded bg-black/40 px-1.5 py-1 text-slate-200">
