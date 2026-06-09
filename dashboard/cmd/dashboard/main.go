@@ -155,13 +155,14 @@ func main() {
 
 	cmd := &commandRouter{printers: mgr, cameras: cameraMgr, docker: dockerSrc, frigate: frigateAdapter}
 	h := hub.New(b, cmd, cfg.Auth.Token)
-	// cameraMgr is the PlateManager (lpr.known_plates) only when Frigate config
-	// editing is available; nil otherwise so the API reports it as unavailable.
-	var plateMgr web.PlateManager
+	// cameraMgr edits Frigate's global config (known plates + detection hardware)
+	// only when Frigate config editing is available; nil otherwise so the API
+	// reports those endpoints as unavailable.
+	var frigCfgMgr web.FrigateConfigManager
 	if frigateCfg != nil {
-		plateMgr = cameraMgr
+		frigCfgMgr = cameraMgr
 	}
-	api := web.NewAPI(Version, h, cmd, notifier, plateMgr, ruleStore)
+	api := web.NewAPI(Version, h, cmd, notifier, frigCfgMgr, ruleStore)
 
 	router, err := web.Router(cfg, h, api, mgr)
 	if err != nil {

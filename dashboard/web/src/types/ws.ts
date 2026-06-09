@@ -168,6 +168,20 @@ export interface CameraSettings {
   zones?: Zone[]
 }
 
+// DetectionSettings mirrors the Go devices.DetectionSettings JSON shape (Detection tab).
+export interface DetectionSettings {
+  detector: string // cpu | openvino | edgetpu | onnx | rocm | hailo8l
+  device?: string // openvino: GPU|NPU|CPU|AUTO ; edgetpu: usb|pci
+  hwaccel?: string // '' | vaapi | qsv-h264 | qsv-h265 | nvidia | rpi-64-h264
+  modelType?: string
+  modelWidth?: number
+  modelHeight?: number
+  modelDtype?: string // float | float16
+  modelPath?: string
+  modelLabelmap?: string
+  advanced?: boolean
+}
+
 export interface Alert {
   id: string
   kind:

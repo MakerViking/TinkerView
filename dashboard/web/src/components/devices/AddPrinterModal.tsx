@@ -45,9 +45,13 @@ export function AddPrinterModal({
   // Curated macro allowlist as comma-separated text (e.g. "T0,T1,T2,T3,M600").
   const [macrosText, setMacrosText] = useState((existing?.caps?.macros ?? []).join(', '))
 
+  // PrusaLink exposes no gcode/macro endpoint, so macros only apply to the other
+  // three kinds (their adapters all accept a curated macro list).
+  const supportsMacros = form.kind !== 'prusalink'
+
   const submit = () => {
     const printer: PrinterInput = { ...form }
-    if (form.kind === 'moonraker') {
+    if (supportsMacros) {
       printer.macros = macrosText
         .split(',')
         .map((s) => s.trim())
@@ -127,17 +131,6 @@ export function AddPrinterModal({
                 value={form.apiKey}
                 onChange={(e) => set('apiKey', e.target.value)}
                 placeholder="(optional)"
-              />
-            </Field>
-            <Field
-              label="Macro buttons"
-              hint="comma-separated gcode macros to show as buttons (e.g. T0,T1,T2,T3,M600). Blank = a safe default set."
-            >
-              <input
-                className={inputCls}
-                value={macrosText}
-                onChange={(e) => setMacrosText(e.target.value)}
-                placeholder="T0,T1,T2,T3,M600"
               />
             </Field>
           </>
@@ -250,6 +243,24 @@ export function AddPrinterModal({
             />
           </Field>
         </div>
+
+        {supportsMacros && (
+          <Field
+            label="Macro buttons"
+            hint={
+              form.kind === 'moonraker'
+                ? 'comma-separated Klipper macros to show as buttons (e.g. T0,T1,T2,T3,M600). Blank = a safe default set.'
+                : 'comma-separated gcode/macros to show as buttons (e.g. M600,M104 S0). Blank = a safe default set.'
+            }
+          >
+            <input
+              className={inputCls}
+              value={macrosText}
+              onChange={(e) => setMacrosText(e.target.value)}
+              placeholder="M600,T0,T1"
+            />
+          </Field>
+        )}
 
         <Actions onCancel={onClose} submitLabel={editing ? 'Save' : 'Add printer'} />
       </form>

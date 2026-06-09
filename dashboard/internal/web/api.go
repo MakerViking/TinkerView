@@ -13,11 +13,14 @@ import (
 	"github.com/MakerViking/TinkerView/internal/rules"
 )
 
-// PlateManager reads/writes Frigate's known license plates (lpr.known_plates).
-// Implemented by the camera manager; may be nil when Frigate config editing is off.
-type PlateManager interface {
+// FrigateConfigManager edits Frigate's global config from the UI — known license
+// plates (lpr.known_plates) and the object-detection hardware (detectors/model/
+// ffmpeg). Implemented by the camera manager; nil when Frigate config editing is off.
+type FrigateConfigManager interface {
 	KnownPlates(ctx context.Context) (map[string][]string, error)
 	SetKnownPlates(plates map[string][]string) error
+	DetectionSettings(ctx context.Context) (devices.DetectionSettings, bool)
+	SetDetectionSettings(s devices.DetectionSettings) error
 }
 
 // API holds the REST mirror handlers. Most live state is delivered over the WS;
@@ -29,12 +32,12 @@ type API struct {
 	hub      *hub.Hub
 	cmd      hub.CommandHandler
 	notifier notify.Notifier
-	plates   PlateManager // may be nil
-	rules    *rules.Store // may be nil
+	frig     FrigateConfigManager // may be nil
+	rules    *rules.Store         // may be nil
 }
 
-func NewAPI(version string, h *hub.Hub, cmd hub.CommandHandler, notifier notify.Notifier, plates PlateManager, ruleStore *rules.Store) *API {
-	return &API{version: version, hub: h, cmd: cmd, notifier: notifier, plates: plates, rules: ruleStore}
+func NewAPI(version string, h *hub.Hub, cmd hub.CommandHandler, notifier notify.Notifier, frig FrigateConfigManager, ruleStore *rules.Store) *API {
+	return &API{version: version, hub: h, cmd: cmd, notifier: notifier, frig: frig, rules: ruleStore}
 }
 
 // Register wires the REST routes onto mux (Go 1.22+ method+path patterns).
@@ -64,6 +67,9 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/plates", a.platesPut)
 	mux.HandleFunc("GET /api/notify-rules", a.rulesGet)
 	mux.HandleFunc("PUT /api/notify-rules", a.rulesPut)
+	// Detection tab: Frigate object-detection hardware (detectors/model/hwaccel).
+	mux.HandleFunc("GET /api/detection", a.detectionGet)
+	mux.HandleFunc("PUT /api/detection", a.detectionSet)
 }
 
 func (a *API) version_(w http.ResponseWriter, r *http.Request) {
@@ -252,11 +258,11 @@ func (a *API) cameraDemote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) platesGet(w http.ResponseWriter, r *http.Request) {
-	if a.plates == nil {
+	if a.frig == nil {
 		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
 		return
 	}
-	m, err := a.plates.KnownPlates(r.Context())
+	m, err := a.frig.KnownPlates(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -268,7 +274,7 @@ func (a *API) platesGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) platesPut(w http.ResponseWriter, r *http.Request) {
-	if a.plates == nil {
+	if a.frig == nil {
 		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
 		return
 	}
@@ -279,7 +285,37 @@ func (a *API) platesPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := a.plates.SetKnownPlates(body.Plates); err != nil {
+	if err := a.frig.SetKnownPlates(body.Plates); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted) // applying to Frigate (restart) runs asynchronously
+}
+
+func (a *API) detectionGet(w http.ResponseWriter, r *http.Request) {
+	if a.frig == nil {
+		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
+		return
+	}
+	s, ok := a.frig.DetectionSettings(r.Context())
+	if !ok {
+		http.Error(w, "could not read the Frigate config", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, s)
+}
+
+func (a *API) detectionSet(w http.ResponseWriter, r *http.Request) {
+	if a.frig == nil {
+		http.Error(w, "Frigate config editing is not available", http.StatusServiceUnavailable)
+		return
+	}
+	var s devices.DetectionSettings
+	if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.frig.SetDetectionSettings(s); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

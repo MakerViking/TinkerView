@@ -69,6 +69,28 @@ type CameraSettings struct {
 	Zones      []Zone   `json:"zones,omitempty"`
 }
 
+// DetectionSettings is the normalized, UI-editable Frigate object-detection config:
+// which detector + device runs detection, the model it loads, and the ffmpeg
+// hardware-DECODE preset. It maps to Frigate's top-level detectors:/model:/ffmpeg:
+// keys (see internal/camera/detection.go). Advanced is set when the live config
+// doesn't match one of our known templates (hand-tuned), so the UI warns before
+// overwriting rather than silently clobbering it.
+type DetectionSettings struct {
+	Detector string `json:"detector"`          // cpu|openvino|edgetpu|onnx|rocm|hailo8l
+	Device   string `json:"device,omitempty"`  // openvino: GPU|NPU|CPU|AUTO ; edgetpu: usb|pci
+	Hwaccel  string `json:"hwaccel,omitempty"`  // "" | vaapi | qsv-h264 | qsv-h265 | nvidia | rpi-64-h264
+	// Model is used by the onnx/rocm detectors (the user supplies an exported .onnx);
+	// openvino uses the bundled model, and cpu/edgetpu/hailo use their bundled models
+	// (these leave the model fields blank).
+	ModelType     string `json:"modelType,omitempty"`
+	ModelWidth    int    `json:"modelWidth,omitempty"`
+	ModelHeight   int    `json:"modelHeight,omitempty"`
+	ModelDtype    string `json:"modelDtype,omitempty"` // float | float16
+	ModelPath     string `json:"modelPath,omitempty"`
+	ModelLabelmap string `json:"modelLabelmap,omitempty"`
+	Advanced      bool   `json:"advanced,omitempty"`
+}
+
 // CameraRecord is a UI-added camera. Src is the resolved go2rtc source string
 // (raw URL or an ffmpeg:/exec: form). When Promoted, Frigate owns the stream via
 // its own config and the reconcile loop leaves it alone; the Detect/Record/...
