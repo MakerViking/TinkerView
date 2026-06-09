@@ -5,9 +5,12 @@
 listen: ":8088"
 
 auth:
-  # Empty = open on the tailnet (Tailscale is the perimeter). Set a shared token
-  # to require it on the REST API + WS handshake + ntfy lock-screen action buttons.
-  token: "${DASHBOARD_TOKEN}"
+  # Empty = open on the tailnet (Tailscale is the perimeter). To require a token on
+  # the REST API + WS handshake + ntfy lock-screen buttons, either paste a literal
+  # value here or set the DASHBOARD_TOKEN env var (it overrides this). Do NOT write
+  # "${DASHBOARD_TOKEN}" — the config is not env-expanded, so the literal string
+  # would become your token and lock you out.
+  token: ""
 
 frigate:
   base_url: "http://127.0.0.1:5000" # unauthenticated internal API (tailnet-only)
@@ -31,7 +34,10 @@ docker:
 ntfy:
   base_url: "http://127.0.0.1:8092"
   topic: "homelab-CHANGE-ME" # pick an unguessable topic name
-  token: "${NTFY_TOKEN}" # publish token created in ntfy
+  # ntfy publish token: paste a literal value or set the NTFY_TOKEN env var (it
+  # overrides this). Leave "" if the topic needs no auth. (Not env-expanded — don't
+  # write "${NTFY_TOKEN}".)
+  token: ""
 
 printers:
   # --- Klipper / Moonraker (Mainsail/Fluidd) ---
