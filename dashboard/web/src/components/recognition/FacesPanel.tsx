@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { inputCls } from '@/components/devices/forms'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { Button, Card, EmptyState, Notice } from '@/components/ui'
+import { IconScanFace, IconUpload, IconX } from '@/components/icons'
 
 // Faces are managed directly through Frigate's API via the dashboard's /frigate/
 // reverse proxy (same pattern as the Recordings tab). Frigate stores each person's
@@ -101,7 +103,7 @@ export function FacesPanel() {
   if (disabled) {
     return (
       <Notice>
-        Face recognition isn't enabled in Frigate. Add <code className="text-slate-300">face_recognition:
+        Face recognition isn't enabled in Frigate. Add <code className="text-ink-100">face_recognition:
         enabled: true</code> to the Frigate config and restart, then enroll faces here.
       </Notice>
     )
@@ -110,14 +112,16 @@ export function FacesPanel() {
   const names = faces ? Object.keys(faces).sort() : []
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-slate-500">
+      <p className="max-w-2xl text-xs leading-relaxed text-ink-500">
         Teach Frigate which faces are known. Recognized people appear by name on detections and can be
-        prioritized (or silenced) under <span className="text-slate-300">Notification rules</span>. Upload a
+        prioritized (or silenced) under <span className="text-ink-200">Notification rules</span>. Upload a
         few clear, well-lit shots per person from different angles.
       </p>
       <div className="flex items-end gap-2">
-        <label className="block flex-1 max-w-xs">
-          <span className="text-xs text-slate-400">Add a person</span>
+        <label className="block max-w-xs flex-1">
+          <span className="font-display text-[11px] font-medium uppercase tracking-[0.08em] text-ink-400">
+            Add a person
+          </span>
           <input
             className={inputCls}
             placeholder="e.g. Thomas"
@@ -126,19 +130,19 @@ export function FacesPanel() {
             onKeyDown={(e) => e.key === 'Enter' && createPerson()}
           />
         </label>
-        <button
-          onClick={createPerson}
-          disabled={!newName.trim()}
-          className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-        >
+        <Button variant="primary" onClick={createPerson} disabled={!newName.trim()} className="mb-px">
           Add person
-        </button>
+        </Button>
       </div>
 
       {error && <Notice tone="error">{error}</Notice>}
 
       {names.length === 0 ? (
-        <div className="p-8 text-center text-slate-400">No faces enrolled yet. Add a person above.</div>
+        <EmptyState
+          icon={<IconScanFace />}
+          title="No faces enrolled yet"
+          hint="Add a person above, then upload a few photos to teach Frigate their face."
+        />
       ) : (
         <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]">
           {names.map((name) => (
@@ -229,34 +233,37 @@ function PersonCard({
   }
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+    <Card className="p-3.5">
       <div className="flex items-center gap-2">
-        <span className="font-medium text-slate-200">{name}</span>
-        <span className="text-xs text-slate-500">{files.length} image{files.length === 1 ? '' : 's'}</span>
+        <span className="font-display font-semibold text-ink-50">{name}</span>
+        <span className="font-mono text-[11px] text-ink-500">
+          {files.length} image{files.length === 1 ? '' : 's'}
+        </span>
         <button
           onClick={onRemove}
-          className="ml-auto text-xs text-rose-400 hover:text-rose-300"
+          className="ml-auto text-xs text-rose-400 transition-colors hover:text-rose-300"
           title="Remove person"
         >
           Remove
         </button>
       </div>
       {files.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {files.map((f) => (
             <div key={f} className="group relative">
               <img
                 src={faceImg(name, f)}
                 alt={f}
-                className="h-14 w-14 rounded object-cover bg-black"
+                className="h-14 w-14 rounded-lg border border-ink-800 bg-black object-cover"
                 loading="lazy"
               />
               <button
                 onClick={() => deleteImage(f)}
-                className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-rose-600 text-[10px] leading-none text-white group-hover:flex"
+                className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-rec text-white shadow group-hover:flex group-focus-within:flex"
                 title="Delete image"
+                aria-label={`Delete image of ${name}`}
               >
-                ✕
+                <IconX className="text-[10px]" />
               </button>
             </div>
           ))}
@@ -265,9 +272,10 @@ function PersonCard({
       <button
         onClick={() => fileRef.current?.click()}
         disabled={busy}
-        className="mt-2 w-full rounded-md border border-dashed border-slate-700 px-2 py-1.5 text-xs text-slate-400 hover:border-sky-600 hover:text-sky-300 disabled:opacity-50"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink-600 px-2 py-2 text-xs text-ink-400 transition-colors hover:border-brand-500 hover:text-brand-300 disabled:opacity-50"
       >
-        {busy ? 'Uploading…' : '+ Upload face image(s)'}
+        <IconUpload className="text-[13px]" />
+        {busy ? 'Uploading…' : 'Upload face image(s)'}
       </button>
       <input
         ref={fileRef}
@@ -277,21 +285,6 @@ function PersonCard({
         className="hidden"
         onChange={(e) => upload(e.target.files)}
       />
-    </div>
-  )
-}
-
-function Notice({ children, tone }: { children: React.ReactNode; tone?: 'error' }) {
-  return (
-    <div
-      className={
-        'rounded-lg border p-3 text-sm ' +
-        (tone === 'error'
-          ? 'border-rose-800 bg-rose-950/40 text-rose-200'
-          : 'border-slate-800 bg-slate-900/60 text-slate-300')
-      }
-    >
-      {children}
-    </div>
+    </Card>
   )
 }

@@ -1,64 +1,87 @@
+import type { ComponentType, SVGProps } from 'react'
 import { useLive } from '@/store/live'
 import type { Alert } from '@/types/ws'
+import { Badge, EmptyState, SectionHeader } from '@/components/ui'
+import {
+  IconActivity,
+  IconBell,
+  IconCameraOff,
+  IconCheck,
+  IconPerson,
+  IconServer,
+  IconWarning,
+} from '@/components/icons'
 import { cn } from '@/lib/utils'
 
-const KIND_ICON: Record<Alert['kind'], string> = {
-  person: '🚶',
-  motion: '🌀',
-  camera_offline: '📵',
-  print_done: '✅',
-  print_failed: '❌',
-  frigate_down: '⚠️',
+const KIND_META: Record<Alert['kind'], { icon: ComponentType<SVGProps<SVGSVGElement>>; cls: string }> = {
+  person: { icon: IconPerson, cls: 'bg-brand-500/12 text-brand-300' },
+  motion: { icon: IconActivity, cls: 'bg-ink-800 text-ink-300' },
+  camera_offline: { icon: IconCameraOff, cls: 'bg-amber-500/12 text-amber-300' },
+  print_done: { icon: IconCheck, cls: 'bg-emerald-500/12 text-emerald-300' },
+  print_failed: { icon: IconWarning, cls: 'bg-rec/12 text-rose-300' },
+  frigate_down: { icon: IconServer, cls: 'bg-rec/12 text-rose-300' },
 }
 
 export function AlertsFeed() {
   const alerts = useLive((s) => s.alerts)
-  if (!alerts.length) {
-    return <div className="text-slate-400 p-8 text-center">No alerts yet.</div>
-  }
   return (
-    <div className="flex flex-col gap-2 max-w-2xl">
-      {alerts.map((a) => (
-        <AlertCard key={a.id} a={a} />
-      ))}
+    <div className="flex max-w-2xl flex-col gap-3">
+      <SectionHeader title="Notifications" meta={alerts.length ? `last ${alerts.length}` : undefined} />
+      {alerts.length ? (
+        <div className="flex flex-col gap-2">
+          {alerts.map((a) => (
+            <AlertCard key={a.id} a={a} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={<IconBell />}
+          title="No alerts yet"
+          hint="Detections, print events and service warnings show up here as they happen."
+        />
+      )}
     </div>
   )
 }
 
 function AlertCard({ a }: { a: Alert }) {
+  const meta = KIND_META[a.kind] ?? { icon: IconBell, cls: 'bg-ink-800 text-ink-300' }
+  const Icon = meta.icon
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-      <span className="text-xl">{KIND_ICON[a.kind] ?? '🔔'}</span>
+    <div className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-900/80 p-3 shadow-elev">
+      <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-lg', meta.cls)}>
+        <Icon className="text-[17px]" />
+      </span>
       {a.thumbUrl && (
-        <img src={a.thumbUrl} alt="" className="w-16 h-10 object-cover rounded bg-black" />
+        <img src={a.thumbUrl} alt="" className="h-10 w-16 rounded-md border border-ink-800 bg-black object-cover" />
       )}
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium truncate">{a.title}</span>
+          <span className="truncate text-sm font-medium text-ink-50">{a.title}</span>
           {a.subLabel ? (
-            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 text-[10px] font-medium text-emerald-300">
+            <Badge tone="ok" className="shrink-0">
               {a.subLabel}
-            </span>
+            </Badge>
           ) : (
             a.label === 'person' && (
-              <span className="shrink-0 rounded bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-300">
+              <Badge tone="warn" className="shrink-0">
                 unknown
-              </span>
+              </Badge>
             )
           )}
         </div>
-        <div className="text-xs text-slate-400 truncate">{a.message}</div>
+        <div className="truncate text-xs text-ink-400">{a.message}</div>
         {a.zones && a.zones.length > 0 && (
-          <div className="mt-0.5 flex flex-wrap gap-1">
+          <div className="mt-1 flex flex-wrap gap-1">
             {a.zones.map((z) => (
-              <span key={z} className="rounded bg-slate-800 px-1.5 text-[10px] text-slate-400">
+              <span key={z} className="rounded bg-ink-800 px-1.5 font-mono text-[10px] text-ink-400">
                 {z}
               </span>
             ))}
           </div>
         )}
       </div>
-      <time className="ml-auto text-xs text-slate-500 whitespace-nowrap">
+      <time className="ml-auto whitespace-nowrap font-mono text-[11px] text-ink-500">
         {new Date(a.ts).toLocaleTimeString()}
       </time>
       {a.clipUrl && (
@@ -66,7 +89,7 @@ function AlertCard({ a }: { a: Alert }) {
           href={a.clipUrl}
           target="_blank"
           rel="noreferrer"
-          className={cn('text-xs px-2 py-1 rounded bg-slate-700 text-slate-200 hover:bg-slate-600')}
+          className="rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs text-ink-100 transition-colors hover:bg-ink-700"
         >
           Clip
         </a>

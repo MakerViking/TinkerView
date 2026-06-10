@@ -3,6 +3,7 @@ import { Modal } from '@/components/Modal'
 import { useWs } from '@/ws/WebSocketProvider'
 import type { CameraSrcKind } from '@/types/ws'
 import { Actions, Field, inputCls } from './forms'
+import { Switch } from '@/components/ui'
 
 const SRC_KINDS: { value: CameraSrcKind; label: string; hint: string }[] = [
   { value: 'rtsp', label: 'RTSP (H.264)', hint: 'rtsp://host:554/stream — passthrough; put the login in the fields below' },
@@ -69,7 +70,7 @@ export function AddCameraModal({
           e.preventDefault()
           submit()
         }}
-        className="flex flex-col gap-3"
+        className="flex flex-col gap-4"
       >
         <Field label="Name" hint="lowercase letters, digits and _ (e.g. garage, front_door)">
           <input
@@ -129,27 +130,31 @@ export function AddCameraModal({
         )}
 
         {!editing && (
-          <div className="rounded-md border border-slate-800 p-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={promote} onChange={(e) => setPromote(e.target.checked)} />
-              Enable Frigate recording / NVR
-              <span className="text-[11px] text-slate-500">(restarts Frigate ~25s)</span>
-            </label>
+          <div className="rounded-xl border border-ink-800 bg-ink-950/40 p-3.5">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-100">Enable Frigate recording / NVR</div>
+                <div className="text-[11px] text-ink-500">restarts Frigate ~25s</div>
+              </div>
+              <span className="ml-auto">
+                <Switch on={promote} onChange={setPromote} label="Enable Frigate recording" />
+              </span>
+            </div>
             {promote && (
-              <div className="mt-3 flex flex-col gap-2 pl-1">
-                <label className="flex items-center gap-2 text-sm text-slate-300">
-                  <input type="checkbox" checked={record} onChange={(e) => setRecord(e.target.checked)} />
+              <div className="mt-3 flex flex-col gap-2.5 border-t border-ink-800 pt-3 animate-fade">
+                <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                  <Switch size="sm" on={record} onChange={setRecord} />
                   Record
                 </label>
-                <span className="text-[11px] text-slate-500">
+                <span className="-mt-1 pl-9 text-[11px] text-ink-500">
                   Retention follows Frigate&apos;s global record config.
                 </span>
-                <label className="flex items-center gap-2 text-sm text-slate-300">
-                  <input type="checkbox" checked={detect} onChange={(e) => setDetect(e.target.checked)} />
+                <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                  <Switch size="sm" on={detect} onChange={setDetect} />
                   Object detection (person/car — security cams)
                 </label>
-                <label className="flex items-center gap-2 text-sm text-slate-300">
-                  <input type="checkbox" checked={snapshots} onChange={(e) => setSnapshots(e.target.checked)} />
+                <label className="flex items-center gap-2.5 text-sm text-ink-200">
+                  <Switch size="sm" on={snapshots} onChange={setSnapshots} />
                   Snapshots
                 </label>
               </div>

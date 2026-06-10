@@ -1,16 +1,20 @@
 import { useWs } from '@/ws/WebSocketProvider'
 import type { WsStatus } from '@/ws/useReconnectingSocket'
-import { cn } from '@/lib/utils'
+import { Badge, type BadgeTone } from '@/components/ui'
 
-const MAP: Record<WsStatus, { label: string; cls: string }> = {
-  open: { label: '● Live', cls: 'bg-emerald-500/20 text-emerald-300' },
-  connecting: { label: 'Connecting…', cls: 'bg-amber-500/20 text-amber-300' },
-  reconnecting: { label: 'Reconnecting…', cls: 'bg-amber-500/20 text-amber-300' },
-  closed: { label: 'Offline', cls: 'bg-rose-500/20 text-rose-300' },
+const MAP: Record<WsStatus, { label: string; tone: BadgeTone; pulse?: boolean }> = {
+  open: { label: 'Live', tone: 'ok', pulse: true },
+  connecting: { label: 'Connecting', tone: 'warn', pulse: true },
+  reconnecting: { label: 'Reconnecting', tone: 'warn', pulse: true },
+  closed: { label: 'Offline', tone: 'danger' },
 }
 
 export function ConnectionStatusBadge() {
   const { status } = useWs()
   const s = MAP[status]
-  return <span className={cn('px-2 py-1 rounded-md text-xs font-medium', s.cls)}>{s.label}</span>
+  return (
+    <Badge tone={s.tone} dot pulse={s.pulse} title={`Dashboard link: ${status}`}>
+      {s.label}
+    </Badge>
+  )
 }

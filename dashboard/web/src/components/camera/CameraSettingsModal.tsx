@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Modal } from '@/components/Modal'
 import { useWs } from '@/ws/WebSocketProvider'
 import { Field, Actions, inputCls } from '@/components/devices/forms'
+import { Skeleton, Switch } from '@/components/ui'
 import { ZoneEditor } from './ZoneEditor'
 import type { CameraSettings, Zone } from '@/types/ws'
 import { cn } from '@/lib/utils'
@@ -12,6 +13,16 @@ const RECORD_MODES = [
   { value: 'motion', label: 'On any motion' },
   { value: 'all', label: 'Continuous (24/7)' },
 ]
+
+// Chip toggle for tracked-object selection.
+export function chipCls(on: boolean): string {
+  return cn(
+    'rounded-md px-2 py-1 font-display text-xs font-medium tracking-wide transition-colors',
+    on
+      ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30'
+      : 'bg-ink-800 text-ink-400 hover:bg-ink-700 hover:text-ink-200',
+  )
+}
 
 // CameraSettingsModal edits a camera's Frigate-NVR config: detection, record mode
 // (object-only recording), retain days, snapshots, tracked objects, and detection
@@ -62,31 +73,27 @@ export function CameraSettingsModal({ name, onClose }: { name: string; onClose: 
   return (
     <Modal size="xl" title={`Recording & detection — ${name}`} onClose={onClose}>
       {!loaded ? (
-        <div className="p-6 text-center text-sm text-slate-400">loading…</div>
+        <div className="flex flex-col gap-3" aria-label="Loading settings">
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
+          <Skeleton className="h-40" />
+        </div>
       ) : (
         <form
           onSubmit={(e) => {
             e.preventDefault()
             submit()
           }}
-          className="flex flex-col gap-3"
+          className="flex flex-col gap-4"
         >
           <Row label="Object detection" hint="Run the AI detector on this camera">
-            <Toggle on={detect} onChange={setDetect} />
+            <Switch on={detect} onChange={setDetect} label="Object detection" />
           </Row>
           {detect && (
             <Field label="Track these objects">
-              <div className="mt-1 flex flex-wrap gap-1.5">
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {TRACK_OPTS.map((o) => (
-                  <button
-                    type="button"
-                    key={o}
-                    onClick={() => toggleObj(o)}
-                    className={cn(
-                      'rounded px-2 py-0.5 text-xs',
-                      objects.includes(o) ? 'bg-emerald-500/30 text-emerald-200' : 'bg-slate-700 text-slate-400',
-                    )}
-                  >
+                  <button type="button" key={o} onClick={() => toggleObj(o)} className={chipCls(objects.includes(o))}>
                     {o}
                   </button>
                 ))}
@@ -95,10 +102,10 @@ export function CameraSettingsModal({ name, onClose }: { name: string; onClose: 
           )}
 
           <Row label="Record" hint="Save video to the NVR">
-            <Toggle on={record} onChange={setRecord} />
+            <Switch on={record} onChange={setRecord} label="Record" />
           </Row>
           {record && (
-            <>
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label="When to record">
                 <select className={inputCls} value={recordMode} onChange={(e) => setRecordMode(e.target.value)}>
                   {RECORD_MODES.map((m) => (
@@ -118,11 +125,11 @@ export function CameraSettingsModal({ name, onClose }: { name: string; onClose: 
                   onChange={(e) => setRecordDays(Math.max(1, Number(e.target.value) || 1))}
                 />
               </Field>
-            </>
+            </div>
           )}
 
           <Row label="Snapshots" hint="Save a still image per detection">
-            <Toggle on={snapshots} onChange={setSnapshots} />
+            <Switch on={snapshots} onChange={setSnapshots} label="Snapshots" />
           </Row>
 
           {detect && (
@@ -130,14 +137,18 @@ export function CameraSettingsModal({ name, onClose }: { name: string; onClose: 
               label="Detection zones (areas of interest)"
               hint="Limit detection to part of the frame — e.g. the yard, not the street"
             >
-              <div className="mt-1">
+              <div className="mt-1.5">
                 <ZoneEditor cameraName={name} zones={zones} onChange={setZones} />
               </div>
             </Field>
           )}
 
           <Actions onCancel={onClose} submitLabel="Save & apply" />
-          {record && <p className="text-[11px] text-slate-500">Applying to a recording camera restarts Frigate (~25s).</p>}
+          {record && (
+            <p className="-mt-2 text-right text-[11px] text-ink-500">
+              Applying to a recording camera restarts Frigate (~25s).
+            </p>
+          )}
         </form>
       )}
     </Modal>
@@ -146,24 +157,12 @@ export function CameraSettingsModal({ name, onClose }: { name: string; onClose: 
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-950/40 px-3.5 py-2.5">
       <div className="min-w-0">
-        <div className="text-sm text-slate-200">{label}</div>
-        {hint && <div className="text-[11px] text-slate-500">{hint}</div>}
+        <div className="text-sm font-medium text-ink-100">{label}</div>
+        {hint && <div className="text-[11px] text-ink-500">{hint}</div>}
       </div>
       <div className="ml-auto">{children}</div>
     </div>
-  )
-}
-
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!on)}
-      className={cn('rounded px-3 py-1 text-xs', on ? 'bg-emerald-500/30 text-emerald-200' : 'bg-slate-700/60 text-slate-300')}
-    >
-      {on ? 'On ●' : 'Off'}
-    </button>
   )
 }

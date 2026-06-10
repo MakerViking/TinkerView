@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
+import { IconDots } from '@/components/icons'
 
 export interface MenuAction {
   label: string
@@ -20,7 +21,7 @@ export function DeviceMenu({ actions, className }: { actions: MenuAction[]; clas
   useLayoutEffect(() => {
     if (!open || !btnRef.current) return
     const r = btnRef.current.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    setPos({ top: r.bottom + 6, right: window.innerWidth - r.right })
   }, [open])
 
   useEffect(() => {
@@ -48,29 +49,36 @@ export function DeviceMenu({ actions, className }: { actions: MenuAction[]; clas
       <button
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
+        aria-label="Manage device"
+        aria-haspopup="menu"
+        aria-expanded={open}
         title="Manage"
-        className="rounded px-1.5 py-0.5 text-sm leading-none text-slate-200 bg-white/10 hover:bg-white/20"
+        className="grid h-6 w-6 place-items-center rounded-md bg-white/10 text-ink-100 backdrop-blur-sm transition-colors hover:bg-white/20"
       >
-        ⋯
+        <IconDots className="text-[14px]" />
       </button>
       {open &&
         pos &&
         createPortal(
           <div
             ref={menuRef}
+            role="menu"
             style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 60 }}
-            className="min-w-[11rem] rounded-md border border-slate-700 bg-slate-900 py-1 shadow-lg"
+            className="min-w-[12rem] rounded-xl border border-ink-700 bg-ink-850 py-1.5 shadow-pop animate-pop"
           >
             {actions.map((a, i) => (
               <button
                 key={i}
+                role="menuitem"
                 onClick={() => {
                   setOpen(false)
                   a.onClick()
                 }}
                 className={cn(
-                  'block w-full px-3 py-1.5 text-left text-sm hover:bg-slate-800',
-                  a.danger ? 'text-rose-300' : 'text-slate-200',
+                  'block w-full px-3.5 py-1.5 text-left text-sm transition-colors',
+                  a.danger
+                    ? 'text-rose-300 hover:bg-rec/10'
+                    : 'text-ink-100 hover:bg-ink-800',
                 )}
               >
                 {a.label}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { inputCls } from '@/components/devices/forms'
 import { useLive } from '@/store/live'
+import { Button, Card, Skeleton } from '@/components/ui'
+import { IconArrowDown, IconArrowUp, IconPlus, IconX } from '@/components/icons'
 import type { NotifyRule } from '@/types/ws'
 import { cn } from '@/lib/utils'
 
@@ -70,14 +72,17 @@ export function RulesPanel() {
     return error ? (
       <div className="text-sm text-rose-300">{error}</div>
     ) : (
-      <div className="p-8 text-center text-slate-400">Loading…</div>
+      <div className="flex max-w-3xl flex-col gap-2" aria-label="Loading rules">
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </div>
     )
   }
 
   return (
     <div className="flex max-w-3xl flex-col gap-3">
-      <p className="text-xs text-slate-500">
-        When a detection fires, the <span className="text-slate-300">first matching rule wins</span>. Empty
+      <p className="text-xs leading-relaxed text-ink-500">
+        When a detection fires, the <span className="text-ink-200">first matching rule wins</span>. Empty
         selectors mean "any". Use it to make recognized people/plates silent and unknown visitors loud. Object
         & name matching needs face/plate recognition enrolled under the other tabs.
       </p>
@@ -87,6 +92,7 @@ export function RulesPanel() {
           <RuleCard
             key={i}
             r={r}
+            index={i}
             cameras={cameras}
             first={i === 0}
             last={i === rules.length - 1}
@@ -96,22 +102,20 @@ export function RulesPanel() {
           />
         ))}
         {rules.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">
+          <div className="rounded-xl border border-dashed border-ink-700 p-6 text-center text-sm text-ink-500">
             No rules — every detection sends a normal push. Add a rule to prioritize or silence.
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <button onClick={add} className="text-sm text-sky-400 hover:text-sky-300">
-          + Add rule
-        </button>
-        <button
-          onClick={save}
-          className="ml-auto rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
-        >
+        <Button variant="ghost" size="sm" onClick={add} className="text-brand-300 hover:text-brand-200">
+          <IconPlus className="text-[13px]" />
+          Add rule
+        </Button>
+        <Button variant="primary" onClick={save} className="ml-auto">
           Save rules
-        </button>
+        </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
       {status && <div className="text-sm text-emerald-300">{status}</div>}
@@ -121,6 +125,7 @@ export function RulesPanel() {
 
 function RuleCard({
   r,
+  index,
   cameras,
   first,
   last,
@@ -129,6 +134,7 @@ function RuleCard({
   onMove,
 }: {
   r: NotifyRule
+  index: number
   cameras: string[]
   first: boolean
   last: boolean
@@ -138,31 +144,39 @@ function RuleCard({
 }) {
   const mode = matchMode(r)
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+    <Card className="p-3.5">
       <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-ink-800 font-mono text-[11px] text-ink-400"
+          title={`Rule ${index + 1} — evaluated in order`}
+        >
+          {index + 1}
+        </span>
         <input
-          className={inputCls + ' mt-0 flex-1 font-medium'}
+          className={inputCls + ' !mt-0 flex-1 font-medium'}
           placeholder="Rule name (e.g. Unknown person at night)"
+          aria-label="Rule name"
           value={r.name ?? ''}
           onChange={(e) => onPatch({ name: e.target.value })}
         />
         <div className="flex shrink-0 items-center gap-0.5">
           <IconBtn disabled={first} onClick={() => onMove(-1)} title="Move up">
-            ↑
+            <IconArrowUp className="text-[13px]" />
           </IconBtn>
           <IconBtn disabled={last} onClick={() => onMove(1)} title="Move down">
-            ↓
+            <IconArrowDown className="text-[13px]" />
           </IconBtn>
           <IconBtn onClick={onRemove} title="Remove rule" tone="danger">
-            ✕
+            <IconX className="text-[13px]" />
           </IconBtn>
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Labeled label="Camera">
           <select
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             value={r.camera ?? ''}
             onChange={(e) => onPatch({ camera: e.target.value })}
           >
@@ -177,7 +191,7 @@ function RuleCard({
 
         <Labeled label="Object">
           <input
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             list="rule-objects"
             placeholder="Any"
             value={r.label ?? ''}
@@ -192,7 +206,7 @@ function RuleCard({
 
         <Labeled label="Recognized">
           <select
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             value={mode}
             onChange={(e) => {
               const v = e.target.value as MatchMode
@@ -212,6 +226,7 @@ function RuleCard({
             <input
               className={inputCls}
               placeholder="exact name / plate owner"
+              aria-label="Recognized name"
               value={r.match ?? ''}
               onChange={(e) => onPatch({ match: e.target.value })}
             />
@@ -220,7 +235,7 @@ function RuleCard({
 
         <Labeled label="Zone">
           <input
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             placeholder="Any"
             value={r.zone ?? ''}
             onChange={(e) => onPatch({ zone: e.target.value })}
@@ -232,7 +247,7 @@ function RuleCard({
         <Labeled label="From (local)">
           <input
             type="time"
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             value={r.from ?? ''}
             onChange={(e) => onPatch({ from: e.target.value })}
           />
@@ -240,14 +255,14 @@ function RuleCard({
         <Labeled label="To (local)">
           <input
             type="time"
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             value={r.to ?? ''}
             onChange={(e) => onPatch({ to: e.target.value })}
           />
         </Labeled>
         <Labeled label="Action">
           <select
-            className={inputCls + ' mt-0'}
+            className={inputCls + ' !mt-0'}
             value={r.action}
             onChange={(e) => onPatch({ action: e.target.value as NotifyRule['action'] })}
           >
@@ -260,7 +275,7 @@ function RuleCard({
         </Labeled>
         <Labeled label="Priority">
           <select
-            className={inputCls + ' mt-0 disabled:opacity-40'}
+            className={inputCls + ' !mt-0 disabled:opacity-40'}
             disabled={r.action !== 'push'}
             value={r.priority ?? 3}
             onChange={(e) => onPatch({ priority: Number(e.target.value) })}
@@ -273,14 +288,16 @@ function RuleCard({
           </select>
         </Labeled>
       </div>
-    </div>
+    </Card>
   )
 }
 
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-[11px] text-slate-500">{label}</span>
+      <span className="mb-1 block font-display text-[10px] font-medium uppercase tracking-[0.08em] text-ink-500">
+        {label}
+      </span>
       {children}
     </label>
   )
@@ -304,11 +321,12 @@ function IconBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-label={title}
       className={cn(
-        'h-6 w-6 rounded text-sm leading-none disabled:opacity-30',
+        'grid h-7 w-7 place-items-center rounded-md transition-colors disabled:opacity-30',
         tone === 'danger'
-          ? 'text-slate-500 hover:bg-rose-950 hover:text-rose-300'
-          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200',
+          ? 'text-ink-500 hover:bg-rec/10 hover:text-rose-300'
+          : 'text-ink-400 hover:bg-ink-800 hover:text-ink-100',
       )}
     >
       {children}

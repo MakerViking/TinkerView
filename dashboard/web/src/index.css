@@ -1,4 +1,79 @@
+/* ── TinkerView design system ──────────────────────────────────────────────
+   A dark "workshop control-room" theme: cold gunmetal surfaces, the brand's
+   signal-cyan as the single accent, mono numerals for telemetry, and a faint
+   blueprint grid in the backdrop. Fonts are bundled locally (@fontsource) so
+   the dashboard works fully offline on the LAN.                              */
+@import "@fontsource/chakra-petch/500.css";
+@import "@fontsource/chakra-petch/600.css";
+@import "@fontsource/chakra-petch/700.css";
+@import "@fontsource-variable/archivo";
+@import "@fontsource-variable/jetbrains-mono";
+
 @import "tailwindcss";
+
+@theme {
+  /* Type — Chakra Petch (squared, technical) for headings/labels/branding,
+     Archivo for body copy, JetBrains Mono for telemetry and identifiers. */
+  --font-display: "Chakra Petch", "Archivo Variable", system-ui, sans-serif;
+  --font-sans: "Archivo Variable", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+
+  /* Neutral ramp — "ink": a cold steel blue-gray, darker + bluer than slate. */
+  --color-ink-50: #f1f5fa;
+  --color-ink-100: #dfe7f0;
+  --color-ink-200: #c3d0e0;
+  --color-ink-300: #9cafc6;
+  --color-ink-400: #7389a4;
+  --color-ink-500: #556a85;
+  --color-ink-600: #40526a;
+  --color-ink-700: #2d3c51;
+  --color-ink-800: #202c3e;
+  --color-ink-850: #18212f;
+  --color-ink-900: #121925;
+  --color-ink-950: #0a0e16;
+  --color-ink-1000: #06080d;
+
+  /* Brand — signal cyan, matching the logo mark. */
+  --color-brand-200: #b9e7fe;
+  --color-brand-300: #7dd3fc;
+  --color-brand-400: #38bdf8;
+  --color-brand-500: #0ea5e9;
+  --color-brand-600: #0284c7;
+  --color-brand-700: #0369a1;
+
+  /* Record red — the logo's live dot; reserved for REC/danger affordances. */
+  --color-rec: #f43f5e;
+
+  --shadow-elev: 0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 2px 8px rgb(0 0 0 / 0.5), 0 24px 64px -24px rgb(0 0 0 / 0.8);
+
+  --animate-rise: rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pop: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade: fade 0.2s ease-out both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-blip: blip 1.8s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.965) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes blip {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 :root {
   color-scheme: dark;
@@ -12,7 +87,54 @@ body,
 
 body {
   margin: 0;
-  background: #0b0f14;
-  color: #e2e8f0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  background-color: var(--color-ink-950);
+  /* Atmosphere: a soft cyan glow up top + a faint blueprint grid. */
+  background-image:
+    radial-gradient(900px 420px at 50% -120px, rgb(14 165 233 / 0.13), transparent 70%),
+    linear-gradient(to right, rgb(125 211 252 / 0.022) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(125 211 252 / 0.022) 1px, transparent 1px);
+  background-size: 100% 100%, 36px 36px, 36px 36px;
+  background-attachment: fixed;
+}
+
+/* Keyboard focus — one consistent, visible ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Slim dark scrollbars to match the chrome. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-700) transparent;
+}
+
+/* Native controls pick up the accent. */
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--color-brand-500);
+}
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237389a4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 1.9rem !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { inputCls } from '@/components/devices/forms'
+import { Button, Notice, Skeleton } from '@/components/ui'
+import { IconPlus, IconX } from '@/components/icons'
 
 // A known-plate row: an owner name and its plate strings (comma-separated in the
 // input). Backed by Frigate's lpr.known_plates via the dashboard's /api/plates.
@@ -83,55 +85,61 @@ export function PlatesPanel() {
 
   if (unavailable) {
     return (
-      <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-300">
-        Frigate config editing isn't available, so known plates can't be managed here.
+      <Notice>Frigate config editing isn't available, so known plates can't be managed here.</Notice>
+    )
+  }
+  if (!rows) {
+    return (
+      <div className="flex max-w-2xl flex-col gap-2" aria-label="Loading plates">
+        <Skeleton className="h-10" />
+        <Skeleton className="h-10" />
       </div>
     )
   }
-  if (!rows) return <div className="p-8 text-center text-slate-400">Loading…</div>
 
   return (
     <div className="flex max-w-2xl flex-col gap-3">
-      <p className="text-xs text-slate-500">
+      <p className="text-xs leading-relaxed text-ink-500">
         Map a name to one or more license plates. Recognized plates show that name on detections and can be
-        prioritized or silenced under <span className="text-slate-300">Notification rules</span> (e.g. your own
+        prioritized or silenced under <span className="text-ink-200">Notification rules</span> (e.g. your own
         car = silent). Saving restarts Frigate (~25s). Plates may be exact text or a regex.
       </p>
       <div className="flex flex-col gap-2">
         {rows.map((r, i) => (
           <div key={i} className="flex items-start gap-2">
             <input
-              className={inputCls + ' w-40 shrink-0'}
+              className={inputCls + ' !mt-0 w-40 shrink-0'}
               placeholder="Owner (e.g. Thomas)"
+              aria-label="Owner name"
               value={r.name}
               onChange={(e) => update(i, { name: e.target.value })}
             />
             <input
-              className={inputCls + ' flex-1'}
+              className={inputCls + ' !mt-0 flex-1 font-mono'}
               placeholder="Plates, comma-separated (e.g. B-AB1234, B-CD5678)"
+              aria-label="Plates"
               value={r.plates}
               onChange={(e) => update(i, { plates: e.target.value })}
             />
             <button
               onClick={() => removeRow(i)}
-              className="mt-1.5 px-1.5 text-slate-500 hover:text-rose-400"
+              className="mt-2 grid h-6 w-6 place-items-center rounded-md text-ink-500 transition-colors hover:bg-rec/10 hover:text-rose-300"
               title="Remove row"
+              aria-label="Remove row"
             >
-              ✕
+              <IconX className="text-[13px]" />
             </button>
           </div>
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={addRow} className="text-sm text-sky-400 hover:text-sky-300">
-          + Add plate
-        </button>
-        <button
-          onClick={save}
-          className="ml-auto rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
-        >
+        <Button variant="ghost" size="sm" onClick={addRow} className="text-brand-300 hover:text-brand-200">
+          <IconPlus className="text-[13px]" />
+          Add plate
+        </Button>
+        <Button variant="primary" onClick={save} className="ml-auto">
           Save plates
-        </button>
+        </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
       {status && <div className="text-sm text-emerald-300">{status}</div>}

@@ -1,10 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useWs } from '@/ws/WebSocketProvider'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { Button } from '@/components/ui'
+import { IconHome } from '@/components/icons'
 import type { FanCap, Heater, PrinterAction, PrinterState } from '@/types/ws'
 import { cn } from '@/lib/utils'
-
-const btn =
-  'rounded px-2 py-1 text-xs bg-slate-700/70 text-slate-200 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'
 
 // PrinterControls is the expandable "Control" tab: every section is gated on the
 // printer's advertised capabilities, so the U1 (no chamber/aux fans/sensor) shows
@@ -15,7 +15,7 @@ export function PrinterControls({ p }: { p: PrinterState }) {
   const setTemp = (heater: string, target: number) =>
     send({ type: 'printer.temp', data: { id: p.id, heater, target } })
   const caps = p.caps
-  if (!caps) return <div className="text-xs text-slate-500">No controls available for this printer.</div>
+  if (!caps) return <div className="text-xs text-ink-500">No controls available for this printer.</div>
   const idle = ['idle', 'complete', 'cancelled', 'error'].includes(p.state)
 
   return (
@@ -33,10 +33,12 @@ export function PrinterControls({ p }: { p: PrinterState }) {
 
 function Section({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-md border border-slate-800 p-3">
-      <div className="mb-2 flex items-center">
-        <span className="text-[11px] uppercase tracking-wide text-slate-400">{title}</span>
-        {right && <span className="ml-auto text-[11px] text-slate-400">{right}</span>}
+    <div className="rounded-xl border border-ink-800 bg-ink-950/40 p-3">
+      <div className="mb-2.5 flex items-center">
+        <span className="font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+          {title}
+        </span>
+        {right && <span className="ml-auto font-mono text-[11px] text-ink-400">{right}</span>}
       </div>
       {children}
     </div>
@@ -57,11 +59,11 @@ function TempSection({ p, setTemp }: { p: PrinterState; setTemp: (h: string, t: 
   }
   return (
     <Section title="Temperatures">
-      <div className="mb-2 flex flex-wrap gap-1.5">
+      <div className="mb-3 flex flex-wrap gap-1.5">
         {presets.map((pr) => (
-          <button key={pr.name} onClick={() => apply(pr)} className={btn}>
+          <Button key={pr.name} size="xs" variant="outline" onClick={() => apply(pr)}>
             {pr.name}
-          </button>
+          </Button>
         ))}
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -86,10 +88,10 @@ function HeaterInput({ label, h, onSet }: { label: string; h: Heater; onSet: (t:
   }
   return (
     <div>
-      <div className="text-[11px] text-slate-400">
+      <div className="text-[11px] text-ink-400">
         {label}{' '}
-        <span className="text-slate-200">{h.actual.toFixed(0)}°</span>
-        <span className="text-slate-500"> / {h.target.toFixed(0)}°</span>
+        <span className="font-mono text-ink-100">{h.actual.toFixed(0)}°</span>
+        <span className="font-mono text-ink-500"> / {h.target.toFixed(0)}°</span>
       </div>
       <div className="mt-1 flex gap-1">
         <input
@@ -98,11 +100,12 @@ function HeaterInput({ label, h, onSet }: { label: string; h: Heater; onSet: (t:
           onChange={(e) => setV(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder="°C"
-          className="w-14 rounded bg-slate-800 border border-slate-700 px-1.5 py-0.5 text-xs"
+          aria-label={`${label} target temperature`}
+          className="w-14 rounded-md border border-ink-700 bg-ink-950/70 px-1.5 py-1 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none"
         />
-        <button onClick={submit} className={btn}>
+        <Button size="xs" onClick={submit}>
           Set
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -127,23 +130,24 @@ function PctSlider({
     if (!dragging.current) setV(value)
   }, [value])
   return (
-    <div className="mb-2 last:mb-0">
-      <div className="flex text-[11px] text-slate-400">
+    <div className="mb-2.5 last:mb-0">
+      <div className="flex text-[11px] text-ink-400">
         <span>{label}</span>
-        <span className="ml-auto text-slate-200">{v}%</span>
+        <span className="ml-auto font-mono text-ink-100">{v}%</span>
       </div>
       <input
         type="range"
         min={min}
         max={max}
         value={v}
+        aria-label={label}
         onPointerDown={() => (dragging.current = true)}
         onChange={(e) => setV(Number(e.target.value))}
         onPointerUp={() => {
           dragging.current = false
           onCommit(v)
         }}
-        className="w-full accent-sky-500"
+        className="w-full"
       />
     </div>
   )
@@ -187,12 +191,12 @@ function BabystepSection({ p, ctl }: { p: PrinterState; ctl: (a: PrinterAction) 
   return (
     <Section title="Z offset (babystep)" right={`${(p.motion?.zOffset ?? 0).toFixed(3)} mm`}>
       <div className="flex gap-2">
-        <button onClick={() => ctl({ op: 'babystep', dist: -step })} className={btn}>
+        <Button size="xs" onClick={() => ctl({ op: 'babystep', dist: -step })}>
           − {step} mm
-        </button>
-        <button onClick={() => ctl({ op: 'babystep', dist: step })} className={btn}>
+        </Button>
+        <Button size="xs" onClick={() => ctl({ op: 'babystep', dist: step })}>
           + {step} mm
-        </button>
+        </Button>
       </div>
     </Section>
   )
@@ -203,45 +207,52 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
   const steps = [0.1, 1, 10, 50]
   return (
     <Section title="Move" right={idle ? undefined : 'idle only'}>
-      <fieldset disabled={!idle} className={cn('flex flex-col gap-2', !idle && 'opacity-40')}>
-        <div className="flex flex-wrap gap-1">
-          <button onClick={() => ctl({ op: 'home', axes: '' })} className={btn}>
-            ⌂ Home all
-          </button>
-          <button onClick={() => ctl({ op: 'home', axes: 'x' })} className={btn}>
+      <fieldset disabled={!idle} className={cn('flex flex-col gap-2.5', !idle && 'opacity-40')}>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="xs" onClick={() => ctl({ op: 'home', axes: '' })}>
+            <IconHome className="text-[12px]" />
+            Home all
+          </Button>
+          <Button size="xs" onClick={() => ctl({ op: 'home', axes: 'x' })}>
             Home X
-          </button>
-          <button onClick={() => ctl({ op: 'home', axes: 'y' })} className={btn}>
+          </Button>
+          <Button size="xs" onClick={() => ctl({ op: 'home', axes: 'y' })}>
             Home Y
-          </button>
-          <button onClick={() => ctl({ op: 'home', axes: 'z' })} className={btn}>
+          </Button>
+          <Button size="xs" onClick={() => ctl({ op: 'home', axes: 'z' })}>
             Home Z
-          </button>
+          </Button>
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-400">
+        <div className="flex items-center gap-1 text-[11px] text-ink-400">
           step
           {steps.map((s) => (
             <button
               key={s}
               onClick={() => setStep(s)}
-              className={cn('rounded px-1.5 py-0.5', step === s ? 'bg-sky-500/40 text-sky-100' : 'bg-slate-700/70 text-slate-300')}
+              aria-pressed={step === s}
+              className={cn(
+                'rounded-md px-2 py-1 font-mono transition-colors',
+                step === s
+                  ? 'bg-brand-500/20 text-brand-200 ring-1 ring-inset ring-brand-400/30'
+                  : 'bg-ink-800 text-ink-300 hover:bg-ink-700',
+              )}
             >
               {s}
             </button>
           ))}
           mm
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3">
           <Jog axis="X" ctl={ctl} step={step} />
           <Jog axis="Y" ctl={ctl} step={step} />
           <Jog axis="Z" ctl={ctl} step={step} />
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-400">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink-400">
           extrude
           {[-10, -1, 1, 10].map((d) => (
-            <button key={d} onClick={() => ctl({ op: 'extrude', dist: d })} className={btn}>
+            <Button key={d} size="xs" onClick={() => ctl({ op: 'extrude', dist: d })} className="font-mono">
               {d > 0 ? `+${d}` : d}
-            </button>
+            </Button>
           ))}
           mm
         </div>
@@ -253,13 +264,23 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
 function Jog({ axis, step, ctl }: { axis: string; step: number; ctl: (a: PrinterAction) => void }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="w-3 text-[11px] text-slate-400">{axis}</span>
-      <button onClick={() => ctl({ op: 'move', axis: axis.toLowerCase(), dist: -step })} className={btn}>
+      <span className="w-3 font-mono text-[11px] text-ink-400">{axis}</span>
+      <Button
+        size="xs"
+        aria-label={`Move ${axis} −${step} mm`}
+        onClick={() => ctl({ op: 'move', axis: axis.toLowerCase(), dist: -step })}
+        className="min-w-8 font-mono"
+      >
         −
-      </button>
-      <button onClick={() => ctl({ op: 'move', axis: axis.toLowerCase(), dist: step })} className={btn}>
+      </Button>
+      <Button
+        size="xs"
+        aria-label={`Move ${axis} +${step} mm`}
+        onClick={() => ctl({ op: 'move', axis: axis.toLowerCase(), dist: step })}
+        className="min-w-8 font-mono"
+      >
         +
-      </button>
+      </Button>
     </div>
   )
 }
@@ -269,9 +290,9 @@ function MacroSection({ macros, ctl }: { macros: string[]; ctl: (a: PrinterActio
     <Section title="Macros">
       <div className="flex flex-wrap gap-1.5">
         {macros.map((m) => (
-          <button key={m} onClick={() => ctl({ op: 'macro', name: m })} className={btn}>
+          <Button key={m} size="xs" variant="outline" onClick={() => ctl({ op: 'macro', name: m })} className="font-mono">
             {m}
-          </button>
+          </Button>
         ))}
       </div>
     </Section>
@@ -279,16 +300,24 @@ function MacroSection({ macros, ctl }: { macros: string[]; ctl: (a: PrinterActio
 }
 
 function RestartSection({ ctl, name }: { ctl: (a: PrinterAction) => void; name: string }) {
+  const { ask, confirmNode } = useConfirm()
   return (
     <Section title="Maintenance">
-      <button
-        onClick={() => {
-          if (confirm(`Firmware restart ${name}? This restarts Klipper.`)) ctl({ op: 'firmware_restart' })
-        }}
-        className={btn}
+      <Button
+        size="xs"
+        onClick={() =>
+          ask({
+            title: `Firmware restart ${name}`,
+            message: `Restart Klipper on ${name}?`,
+            confirmLabel: 'Restart firmware',
+            danger: true,
+            onConfirm: () => ctl({ op: 'firmware_restart' }),
+          })
+        }
       >
         Firmware restart
-      </button>
+      </Button>
+      {confirmNode}
     </Section>
   )
 }

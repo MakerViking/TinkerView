@@ -1,5 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Field, inputCls } from '@/components/devices/forms'
+import { Button, Notice, SectionHeader, Skeleton } from '@/components/ui'
+import { IconActivity, IconCheck } from '@/components/icons'
 import type { DetectionSettings } from '@/types/ws'
 
 const DETECTORS: { value: string; label: string }[] = [
@@ -157,7 +159,15 @@ export function DetectionPanel() {
     )
   }
   if (!s) {
-    return error ? <Notice tone="error">{error}</Notice> : <div className="p-8 text-center text-slate-400">Loading…</div>
+    return error ? (
+      <Notice tone="error">{error}</Notice>
+    ) : (
+      <div className="flex max-w-2xl flex-col gap-3" aria-label="Loading detection settings">
+        <Skeleton className="h-12" />
+        <Skeleton className="h-12" />
+        <Skeleton className="h-24" />
+      </div>
+    )
   }
 
   const isModelDetector = s.detector === 'onnx' || s.detector === 'rocm'
@@ -166,11 +176,11 @@ export function DetectionPanel() {
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       <div>
-        <h1 className="text-sm font-medium text-slate-300">Detection hardware</h1>
-        <p className="mt-1 text-xs text-slate-500">
+        <SectionHeader title="Detection hardware" />
+        <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
           Choose what runs Frigate's object detection and video decode. The dashboard writes Frigate's config and
           restarts it; anything it can't do (passing in a GPU/Coral device, swapping the image, exporting a model)
-          is listed under "Host prerequisites". <span className="text-slate-400">CPU is the safe default that works
+          is listed under "Host prerequisites". <span className="text-ink-300">CPU is the safe default that works
           everywhere.</span>
         </p>
       </div>
@@ -181,7 +191,7 @@ export function DetectionPanel() {
         <Notice tone="warn">
           Your current Frigate config looks hand-tuned (multiple detectors or custom settings). Applying a choice here
           will <strong>replace</strong> the detectors/model/decode blocks. To keep the custom config, edit{' '}
-          <code className="text-slate-300">frigate/config.yml</code> directly instead.
+          <code className="text-ink-100">frigate/config.yml</code> directly instead.
         </Notice>
       )}
 
@@ -225,7 +235,7 @@ export function DetectionPanel() {
           <div className="col-span-2">
             <Field label="Model path" hint="the .onnx you exported, e.g. /config/model_cache/yolov9-t-320.onnx">
               <input
-                className={inputCls}
+                className={inputCls + ' font-mono'}
                 value={s.modelPath ?? ''}
                 onChange={(e) => set({ modelPath: e.target.value })}
                 placeholder="/config/model_cache/…onnx"
@@ -259,22 +269,18 @@ export function DetectionPanel() {
         </select>
       </Field>
 
-      <div
-        className={
-          'rounded-lg border p-3 text-xs ' +
-          (steps.ok ? 'border-emerald-800 bg-emerald-950/30 text-emerald-200' : 'border-amber-800 bg-amber-950/30 text-amber-200')
-        }
-      >
-        <div className="mb-1 font-medium">
+      <Notice tone={steps.ok ? 'ok' : 'warn'} className="text-xs">
+        <div className="mb-1 flex items-center gap-1.5 font-display font-semibold tracking-wide">
+          {steps.ok && <IconCheck className="text-[13px]" />}
           {steps.ok
             ? s.detector === active && s.detector !== 'cpu'
-              ? 'Already set up on this host ✅'
-              : 'Host prerequisites: none ✅'
+              ? 'Already set up on this host'
+              : 'Host prerequisites: none'
             : 'One-time host setup (skip if this host already has it)'}
         </div>
         {steps.lines.map((l, i) =>
           l.startsWith('docker compose') || l.includes('FRIGATE_IMAGE=') ? (
-            <code key={i} className="mt-1 block whitespace-pre-wrap break-all rounded bg-black/40 px-1.5 py-1 text-slate-200">
+            <code key={i} className="mt-1 block whitespace-pre-wrap break-all rounded-md bg-black/40 px-2 py-1 font-mono text-ink-100">
               {l}
             </code>
           ) : (
@@ -283,19 +289,15 @@ export function DetectionPanel() {
             </div>
           ),
         )}
-      </div>
+      </Notice>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={apply}
-          disabled={busy}
-          className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-        >
+        <Button variant="primary" onClick={apply} disabled={busy}>
           Apply &amp; restart Frigate
-        </button>
-        <button onClick={load} className="text-sm text-slate-400 hover:text-slate-200">
+        </Button>
+        <Button variant="ghost" onClick={load}>
           Reload current
-        </button>
+        </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
       {status && <div className="text-sm text-emerald-300">{status}</div>}
@@ -333,26 +335,24 @@ function LiveSpeed() {
   const entries = speeds ? Object.entries(speeds) : []
   if (!entries.length) return null
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs">
-      <div className="mb-1 font-medium text-slate-300">Live detector speed (lower = faster)</div>
+    <div className="rounded-xl border border-ink-800 bg-ink-900/80 p-3.5 shadow-elev">
+      <div className="mb-2 flex items-center gap-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        <IconActivity className="text-[12px] text-brand-400" />
+        Live detector speed
+        <span className="font-sans font-normal normal-case tracking-normal text-ink-600">(lower = faster)</span>
+      </div>
       {entries.map(([name, ms]) => (
-        <div key={name} className="flex justify-between tabular-nums">
-          <span className="text-slate-400">{name}</span>
-          <span className={ms > 0 ? 'text-emerald-300' : 'text-slate-500'}>
-            {ms > 0 ? `${ms.toFixed(1)} ms/inference` : 'idle — no frames being detected'}
-          </span>
+        <div key={name} className="flex items-baseline justify-between font-mono text-xs tabular-nums">
+          <span className="text-ink-400">{name}</span>
+          {ms > 0 ? (
+            <span className="text-emerald-300">
+              <span className="text-base font-medium">{ms.toFixed(1)}</span> ms/inference
+            </span>
+          ) : (
+            <span className="text-ink-500">idle — no frames being detected</span>
+          )}
         </div>
       ))}
     </div>
   )
-}
-
-function Notice({ children, tone }: { children: ReactNode; tone?: 'error' | 'warn' }) {
-  const cls =
-    tone === 'error'
-      ? 'border-rose-800 bg-rose-950/40 text-rose-200'
-      : tone === 'warn'
-        ? 'border-amber-800 bg-amber-950/40 text-amber-200'
-        : 'border-slate-800 bg-slate-900/60 text-slate-300'
-  return <div className={'rounded-lg border p-3 text-sm ' + cls}>{children}</div>
 }

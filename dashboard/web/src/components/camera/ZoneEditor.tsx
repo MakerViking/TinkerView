@@ -1,6 +1,9 @@
 import { useRef, useState, type MouseEvent } from 'react'
 import type { Zone } from '@/types/ws'
 import { inputCls } from '@/components/devices/forms'
+import { chipCls } from './CameraSettingsModal'
+import { Button } from '@/components/ui'
+import { IconPlus, IconTrash } from '@/components/icons'
 import { cn } from '@/lib/utils'
 
 const OBJECT_OPTS = ['person', 'car', 'bicycle', 'motorcycle', 'truck', 'cat', 'dog', 'bird']
@@ -56,27 +59,29 @@ export function ZoneEditor({
             key={i}
             onClick={() => setSelected(i)}
             className={cn(
-              'rounded px-2 py-0.5 text-xs',
-              i === selected ? 'bg-sky-500/30 text-sky-100' : 'bg-slate-700 text-slate-300',
+              'rounded-md px-2 py-1 font-display text-xs font-medium tracking-wide transition-colors',
+              i === selected
+                ? 'bg-brand-500/15 text-brand-300 ring-1 ring-inset ring-brand-400/30'
+                : 'bg-ink-800 text-ink-300 hover:bg-ink-700',
             )}
           >
             {z.name || `zone ${i + 1}`}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={addZone}
-          className="rounded px-2 py-0.5 text-xs bg-slate-700 text-slate-200 hover:bg-slate-600"
-        >
-          + Zone
-        </button>
+        <Button type="button" size="xs" variant="outline" onClick={addZone}>
+          <IconPlus className="text-[12px]" />
+          Zone
+        </Button>
       </div>
 
-      <div className="relative w-full overflow-hidden rounded bg-black" style={{ aspectRatio: '16 / 9' }}>
+      <div
+        className="relative w-full overflow-hidden rounded-xl border border-ink-800 bg-black"
+        style={{ aspectRatio: '16 / 9' }}
+      >
         <img
           ref={imgRef}
           src={`/go2rtc/api/frame.jpeg?src=${encodeURIComponent(cameraName)}`}
-          alt=""
+          alt={`Live frame of ${cameraName}`}
           draggable={false}
           onClick={onImgClick}
           className="absolute inset-0 h-full w-full cursor-crosshair object-cover select-none"
@@ -88,38 +93,32 @@ export function ZoneEditor({
                 <polygon
                   key={i}
                   points={z.coordinates.map((p) => p.join(',')).join(' ')}
-                  className={i === selected ? 'fill-sky-400/25 stroke-sky-300' : 'fill-slate-400/10 stroke-slate-400'}
+                  className={i === selected ? 'fill-brand-400/25 stroke-brand-300' : 'fill-ink-400/10 stroke-ink-400'}
                   strokeWidth={0.004}
                 />
               ),
           )}
-          {zone?.coordinates.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={0.008} className="fill-sky-200" />)}
+          {zone?.coordinates.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={0.008} className="fill-brand-200" />)}
         </svg>
       </div>
 
       {zone ? (
-        <div className="flex flex-col gap-2 rounded border border-slate-800 p-2">
+        <div className="flex flex-col gap-2 rounded-xl border border-ink-800 bg-ink-950/40 p-3">
           <div className="flex items-center gap-2">
             <input
               value={zone.name}
               onChange={(e) => update(selected, { name: e.target.value })}
               placeholder="zone name"
+              aria-label="Zone name"
               className={cn(inputCls, '!mt-0')}
             />
-            <button
-              type="button"
-              onClick={() => update(selected, { coordinates: [] })}
-              className="whitespace-nowrap rounded px-2 py-1 text-xs bg-slate-700 text-slate-200 hover:bg-slate-600"
-            >
+            <Button type="button" size="xs" variant="soft" onClick={() => update(selected, { coordinates: [] })}>
               Clear points
-            </button>
-            <button
-              type="button"
-              onClick={() => removeZone(selected)}
-              className="whitespace-nowrap rounded px-2 py-1 text-xs bg-rose-600/80 text-white hover:bg-rose-500"
-            >
+            </Button>
+            <Button type="button" size="xs" variant="danger-soft" onClick={() => removeZone(selected)}>
+              <IconTrash className="text-[12px]" />
               Delete
-            </button>
+            </Button>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {OBJECT_OPTS.map((o) => (
@@ -127,22 +126,19 @@ export function ZoneEditor({
                 type="button"
                 key={o}
                 onClick={() => toggleObj(o)}
-                className={cn(
-                  'rounded px-2 py-0.5 text-xs',
-                  zone.objects?.includes(o) ? 'bg-emerald-500/30 text-emerald-200' : 'bg-slate-700 text-slate-400',
-                )}
+                className={chipCls(!!zone.objects?.includes(o))}
               >
                 {o}
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-ink-500">
             Click the image to add polygon points ({zone.coordinates.length}). Only the selected object types inside
             the zone trigger alerts/recording.
           </p>
         </div>
       ) : (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-ink-500">
           No zones — the whole frame is watched. Add a zone to limit detection to an area of interest.
         </p>
       )}

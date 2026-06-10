@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { Badge, Button, Card } from '@/components/ui'
+import { IconBox, IconDisk } from '@/components/icons'
 import type { Container, DiskUsage } from '@/types/ws'
 import { cn, fmtBytes, fmtDuration } from '@/lib/utils'
 
@@ -10,21 +13,16 @@ export function HealthPanel() {
   const frigateOnline = useLive((s) => s.frigateOnline)
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-7">
       <section>
-        <h2 className="text-sm font-semibold text-slate-300 mb-2">Services</h2>
-        <div className="flex items-center gap-2 mb-3 text-sm">
-          <span
-            className={cn(
-              'px-2 py-0.5 rounded text-xs',
-              frigateOnline ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300',
-            )}
-          >
+        <SectionTitle icon={<IconBox className="text-[14px]" />} title="Services" />
+        <div className="mb-3 flex items-center gap-2 text-sm">
+          <Badge tone={frigateOnline ? 'ok' : 'danger'} dot pulse={frigateOnline}>
             Frigate {frigateOnline ? 'online' : 'offline'}
-          </span>
+          </Badge>
         </div>
         {containers.length === 0 ? (
-          <p className="text-slate-500 text-sm">
+          <p className="text-sm text-ink-500">
             No container data yet — the Docker adapter is wired in a later phase (via the
             docker-socket-proxy).
           </p>
@@ -38,9 +36,9 @@ export function HealthPanel() {
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold text-slate-300 mb-2">Storage</h2>
+        <SectionTitle icon={<IconDisk className="text-[14px]" />} title="Storage" />
         {disks.length === 0 ? (
-          <p className="text-slate-500 text-sm">No disk data yet.</p>
+          <p className="text-sm text-ink-500">No disk data yet.</p>
         ) : (
           <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
             {disks.map((d) => (
@@ -51,10 +49,19 @@ export function HealthPanel() {
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold text-slate-300 mb-2">Notifications</h2>
+        <SectionTitle title="Notifications" />
         <TestNotifyButton />
       </section>
     </div>
+  )
+}
+
+function SectionTitle({ icon, title }: { icon?: React.ReactNode; title: string }) {
+  return (
+    <h2 className="mb-3 flex items-center gap-1.5 font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-400">
+      {icon}
+      {title}
+    </h2>
   )
 }
 
@@ -82,72 +89,81 @@ function TestNotifyButton() {
 
   return (
     <div className="flex items-center gap-3">
-      <button
-        onClick={send}
-        disabled={state === 'sending'}
-        className="text-sm px-3 py-1.5 rounded-md bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50"
-      >
+      <Button onClick={send} disabled={state === 'sending'}>
         {state === 'sending' ? 'Sending…' : 'Send test notification'}
-      </button>
-      {state === 'ok' && <span className="text-emerald-300 text-sm">Sent ✓</span>}
-      {state === 'err' && <span className="text-rose-300 text-sm">{msg || 'Failed'}</span>}
+      </Button>
+      {state === 'ok' && <span className="text-sm text-emerald-300">Sent ✓</span>}
+      {state === 'err' && <span className="text-sm text-rose-300">{msg || 'Failed'}</span>}
     </div>
   )
 }
 
 function ContainerCard({ c }: { c: Container }) {
   const { send } = useWs()
+  const { ask, confirmNode } = useConfirm()
   const up = c.state === 'running'
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 flex flex-col gap-2">
+    <Card className="flex flex-col gap-2 p-3.5">
       <div className="flex items-center gap-2">
-        <span className="font-medium text-sm">{c.name}</span>
-        <span
-          className={cn(
-            'ml-auto text-xs px-2 py-0.5 rounded',
-            up ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300',
-          )}
-        >
+        <span className="font-display text-sm font-semibold text-ink-50">{c.name}</span>
+        <span className="ml-auto" />
+        <Badge tone={up ? 'ok' : 'danger'} dot pulse={up}>
           {c.state}
-        </span>
+        </Badge>
       </div>
-      <div className="text-xs text-slate-400">{c.status}</div>
+      <div className="text-xs text-ink-400">{c.status}</div>
       {up && (
-        <div className="flex gap-3 text-xs text-slate-400">
+        <div className="flex gap-3 font-mono text-[11px] text-ink-400">
           <span>CPU {c.cpuPct.toFixed(0)}%</span>
           <span>Mem {fmtBytes(c.memUsed)}</span>
           <span>Up {fmtDuration(c.uptimeSec)}</span>
         </div>
       )}
-      <button
-        onClick={() => {
-          if (confirm(`Restart ${c.name}?`)) send({ type: 'container.restart', data: { id: c.id } })
-        }}
-        className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 self-start"
+      <Button
+        size="xs"
+        variant="outline"
+        className="self-start"
+        onClick={() =>
+          ask({
+            title: `Restart ${c.name}`,
+            message: `Restart the ${c.name} container?`,
+            confirmLabel: 'Restart',
+            danger: true,
+            onConfirm: () => send({ type: 'container.restart', data: { id: c.id } }),
+          })
+        }
       >
         Restart
-      </button>
-    </div>
+      </Button>
+      {confirmNode}
+    </Card>
   )
 }
 
 function DiskGauge({ d }: { d: DiskUsage }) {
-  const danger = d.usedPct > 90
+  const tone =
+    d.usedPct > 90 ? 'bg-rec' : d.usedPct > 70 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-600 to-brand-400'
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 flex flex-col gap-2">
+    <Card className="flex flex-col gap-2 p-3.5">
       <div className="flex justify-between text-sm">
-        <span className="font-mono text-slate-300">{d.path}</span>
-        <span className="text-slate-400">{d.usedPct.toFixed(0)}%</span>
+        <span className="font-mono text-ink-200">{d.path}</span>
+        <span className={cn('font-mono', d.usedPct > 90 ? 'text-rose-300' : 'text-ink-400')}>
+          {d.usedPct.toFixed(0)}%
+        </span>
       </div>
-      <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-        <div
-          className={cn('h-full', danger ? 'bg-rose-500' : 'bg-sky-500')}
-          style={{ width: `${Math.min(100, d.usedPct)}%` }}
-        />
+      <div
+        role="progressbar"
+        aria-valuenow={Math.round(d.usedPct)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${d.path} used`}
+        className="h-2 overflow-hidden rounded-full bg-ink-800"
+      >
+        <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, d.usedPct)}%` }} />
       </div>
-      <div className="text-xs text-slate-500">
+      <div className="font-mono text-[11px] text-ink-500">
         {fmtBytes(d.used)} used · {fmtBytes(d.free)} free
       </div>
-    </div>
+    </Card>
   )
 }
