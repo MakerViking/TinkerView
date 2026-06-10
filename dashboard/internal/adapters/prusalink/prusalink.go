@@ -49,6 +49,24 @@ const pollInterval = 3 * time.Second
 // digestUser is hardcoded in PrusaLink firmware on all modern models.
 const digestUser = "maker"
 
+// v1 temp_nozzle sanity bounds. Some PrusaLink firmware (e.g. Prusa XL stock
+// 6.4.x) reports printer.temp_nozzle stuck at ~6 C over /api/v1 while the legacy
+// temperature.tool0 block is correct. Below v1NozzleSaneMin we cross-read the
+// legacy block; if it's hotter than the v1 value by more than v1NozzleDisagree the
+// v1 reading is bogus and we switch this printer to legacy temps.
+const (
+	v1NozzleSaneMin  = 15.0
+	v1NozzleDisagree = 8.0
+)
+
+// v1NozzleSuspect reports whether a v1 nozzle reading is low enough to warrant a
+// legacy cross-check (a powered printer's hotend at idle indoors sits at ~room temp).
+func v1NozzleSuspect(actual float64) bool { return actual < v1NozzleSaneMin }
+
+// v1NozzleBogus reports whether the legacy reading contradicts the v1 reading enough
+// to conclude the v1 nozzle temperature is stuck/wrong.
+func v1NozzleBogus(v1, legacy float64) bool { return legacy-v1 > v1NozzleDisagree }
+
 type Printer struct {
 	bus      *bus.Bus
 	id       string
@@ -72,6 +90,7 @@ type Printer struct {
 
 	mu         sync.Mutex
 	apiMode    string // "" (undetected) | "v1" (/api/v1 Digest) | "legacy" (/api/printer X-Api-Key)
+	v1TempsBad bool   // sticky: this printer's /api/v1 temp_nozzle is bogus; read temps from legacy
 	online     bool
 	offlineMsg string
 	pstate     adapter.PState
@@ -214,6 +233,36 @@ func (p *Printer) pollV1(ctx context.Context) (bool, int, error) {
 
 	nozzle := adapter.Heater{Actual: float64(st.Printer.TempNozzle), Target: float64(st.Printer.TargetNozzle)}
 	bed := adapter.Heater{Actual: float64(st.Printer.TempBed), Target: float64(st.Printer.TargetBed)}
+	// Work around firmware that reports a bogus v1 temp_nozzle (Prusa XL stock):
+	// cross-read the legacy temperature.tool0 block when the v1 nozzle looks too cold
+	// (or once we've confirmed it's bad for this printer), and prefer it.
+	p.mu.Lock()
+	useLegacy := p.v1TempsBad
+	p.mu.Unlock()
+	if useLegacy || v1NozzleSuspect(float64(st.Printer.TempNozzle)) {
+		var lp legacyPrinter
+		if _, e := p.legacyGet(ctx, "/api/printer", &lp); e == nil {
+			ltool := float64(lp.Temperature.Tool0.Actual)
+			if !useLegacy && v1NozzleBogus(float64(st.Printer.TempNozzle), ltool) {
+				p.mu.Lock()
+				p.v1TempsBad = true
+				p.mu.Unlock()
+				useLegacy = true
+				slog.Warn("prusalink: /api/v1 temp_nozzle is unreliable on this printer; using legacy temperature.tool0",
+					"printer", p.id, "v1_nozzle", float64(st.Printer.TempNozzle), "legacy_tool0", ltool)
+			}
+			if useLegacy {
+				nozzle = adapter.Heater{Actual: ltool, Target: float64(lp.Temperature.Tool0.Target)}
+				bed = adapter.Heater{Actual: float64(lp.Temperature.Bed.Actual), Target: float64(lp.Temperature.Bed.Target)}
+			}
+		} else if useLegacy {
+			// Known-bad v1 temps but legacy momentarily unreachable — keep the last good
+			// readings rather than flash the bogus v1 value.
+			p.mu.Lock()
+			nozzle, bed = p.nozzle, p.bed
+			p.mu.Unlock()
+		}
+	}
 	p.commit(pst, nozzle, bed, progress, eta, elapsed, jobID, filename)
 	return true, code, nil
 }

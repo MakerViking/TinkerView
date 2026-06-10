@@ -156,6 +156,28 @@ func TestLegacyJobDecode(t *testing.T) {
 	}
 }
 
+func TestV1NozzleBogusDetection(t *testing.T) {
+	// The Prusa XL stock-firmware bug: v1 reports ~6 C, legacy reads the real ~27 C.
+	if !v1NozzleSuspect(6.0) {
+		t.Error("6 C should be suspect (cross-check legacy)")
+	}
+	if !v1NozzleBogus(6.0, 27.0) {
+		t.Error("v1=6 vs legacy=27 should be flagged bogus")
+	}
+	// A normal idle nozzle at room temp is trusted without a cross-read.
+	if v1NozzleSuspect(27.0) {
+		t.Error("27 C is a normal idle reading, not suspect")
+	}
+	// A genuinely cold printer where both dialects agree must NOT be flagged.
+	if v1NozzleSuspect(13.0) && v1NozzleBogus(13.0, 13.5) {
+		t.Error("cold-but-agreeing readings should not be flagged bogus")
+	}
+	// MK4S: v1 is correct, agrees with legacy → not bogus even if cross-checked.
+	if v1NozzleBogus(28.0, 28.0) {
+		t.Error("agreeing readings are not bogus")
+	}
+}
+
 func TestOfflineReason(t *testing.T) {
 	if m := offlineReason(http.StatusUnauthorized, nil); !strings.Contains(m, "401") || !strings.Contains(m, "maker") {
 		t.Errorf("401 reason should mention auth + maker: %q", m)
