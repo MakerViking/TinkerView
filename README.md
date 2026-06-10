@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/tinkerview-logo-banner.svg" alt="TinkerView — Cameras + 3D printers" width="420">
+</p>
+
 # TinkerView · by TinkerAtlas
 
 > A self-hosted hub that puts your **cameras (NVR)** and your **3D printers** in one

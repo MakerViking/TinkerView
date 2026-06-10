@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ConnectionStatusBadge } from './ConnectionStatusBadge'
+import { Mark } from './Logo'
 import { useLive } from '@/store/live'
 import { cn } from '@/lib/utils'
 
@@ -41,14 +42,17 @@ export function AppShell({
   return (
     <div className="min-h-full flex flex-col">
       <header className="flex items-center gap-4 px-4 h-14 border-b border-slate-800 bg-slate-900/70 backdrop-blur sticky top-0 z-20">
-        <span className="flex items-baseline gap-1.5 whitespace-nowrap">
-          <span className="font-semibold tracking-tight">TinkerView</span>
-          <span className="text-[11px] font-normal text-slate-500">by TinkerAtlas</span>
-          {version && (
-            <span className="hidden text-[11px] text-slate-600 sm:inline" title="running version">
-              {/^\d/.test(version) ? `v${version}` : version}
-            </span>
-          )}
+        <span className="flex items-center gap-2 whitespace-nowrap">
+          <Mark className="h-7 w-7 shrink-0" />
+          <span className="flex items-baseline gap-1.5">
+            <span className="font-semibold tracking-tight">TinkerView</span>
+            <span className="text-[11px] font-normal text-slate-500">by TinkerAtlas</span>
+            {version && (
+              <span className="hidden text-[11px] text-slate-600 sm:inline" title="running version">
+                {/^\d/.test(version) ? `v${version}` : version}
+              </span>
+            )}
+          </span>
         </span>
         <nav className="flex gap-1">
           {TABS.map((t) => (

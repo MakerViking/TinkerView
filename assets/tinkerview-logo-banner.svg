@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="132" viewBox="0 0 384 132" fill="none" role="img" aria-label="TinkerView — Cameras + 3D printers">
+  <defs>
+    <linearGradient id="tvSky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <clipPath id="tvLens"><circle cx="68" cy="62" r="22"/></clipPath>
+  </defs>
+
+  <!-- dark panel so the logo reads on GitHub's light OR dark theme -->
+  <rect x="0" y="0" width="384" height="132" rx="20" fill="#0b0f14"/>
+
+  <!-- Icon -->
+  <rect x="22" y="22" width="92" height="84" rx="22" stroke="url(#tvSky)" stroke-width="5"/>
+  <circle cx="68" cy="62" r="22" stroke="#e2e8f0" stroke-width="4"/>
+  <g clip-path="url(#tvLens)" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" opacity="0.95">
+    <line x1="44" y1="55" x2="92" y2="55"/>
+    <line x1="44" y1="62" x2="92" y2="62"/>
+    <line x1="44" y1="69" x2="92" y2="69"/>
+  </g>
+  <circle cx="68" cy="62" r="5" fill="#e2e8f0"/>
+  <circle cx="102" cy="34" r="6" fill="#f43f5e"/>
+
+  <!-- Wordmark -->
+  <text x="140" y="64" fill="#e2e8f0" font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="40" font-weight="700" letter-spacing="-0.6">Tinker<tspan fill="#38bdf8">View</tspan></text>
+  <!-- Tagline -->
+  <text x="142" y="93" fill="#94a3b8" font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="16" font-weight="400" letter-spacing="0.2">Cameras + 3D printers</text>
+</svg>
