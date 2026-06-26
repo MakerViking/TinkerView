@@ -24,12 +24,15 @@ const KIND_META: Record<Alert['kind'], { icon: ComponentType<SVGProps<SVGSVGElem
 
 export function AlertsFeed() {
   const alerts = useLive((s) => s.alerts)
+  // Always newest-first, regardless of the initial /api/state order or how live
+  // (prepended) updates merge with it.
+  const sorted = [...alerts].sort((a, b) => b.ts - a.ts)
   return (
     <div className="flex max-w-2xl flex-col gap-3">
       <SectionHeader title="Notifications" meta={alerts.length ? `last ${alerts.length}` : undefined} />
-      {alerts.length ? (
+      {sorted.length ? (
         <div className="flex flex-col gap-2">
-          {alerts.map((a) => (
+          {sorted.map((a) => (
             <AlertCard key={a.id} a={a} />
           ))}
         </div>

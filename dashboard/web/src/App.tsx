@@ -19,8 +19,20 @@ export default function App() {
   return (
     <WebSocketProvider>
       <AppShell tab={tab} onTab={setTab}>
+        {/* Cameras stays mounted across tab switches and is merely hidden when
+            off-tab, so the go2rtc WebRTC/MSE connections stay warm. Returning to
+            the tab is then instant instead of re-negotiating each stream from
+            scratch (the old 1–10s tab-switch delay). `display:contents` keeps the
+            wrapper transparent to layout so the grid renders exactly as before. */}
+        <ErrorBoundary>
+          <div className={tab === 'cameras' ? 'contents' : 'hidden'}>
+            <CameraWall />
+          </div>
+        </ErrorBoundary>
+        {/* The remaining tabs mount on demand and remount per tab (keyed
+            boundary) — they're cheap and benefit from a clean slate. On the
+            cameras tab every conditional below is false, so this renders nothing. */}
         <ErrorBoundary key={tab}>
-          {tab === 'cameras' && <CameraWall />}
           {tab === 'recordings' && <RecordingsPanel />}
           {tab === 'printers' && <PrintersView />}
           {tab === 'recognition' && <RecognitionPanel />}
