@@ -17,6 +17,7 @@ interface LiveState {
   disks: DiskUsage[]
   frigateOnline: boolean
   alerts: Alert[]
+  dataWritable: boolean
   lastNotice?: { level: string; msg: string; ts: number }
   setConnected: (b: boolean) => void
   applyServerMsg: (m: ServerMsg) => void
@@ -30,6 +31,7 @@ export const useLive = create<LiveState>((set) => ({
   disks: [],
   frigateOnline: false,
   alerts: [],
+  dataWritable: true,
   setConnected: (b) => set({ connected: b }),
   applyServerMsg: (m) => set((s) => reduce(s, m)),
 }))
@@ -45,6 +47,7 @@ function reduce(s: LiveState, m: ServerMsg): Partial<LiveState> {
         disks: d.disks ?? [],
         frigateOnline: d.frigateOnline,
         alerts: d.alerts ?? [],
+        dataWritable: d.dataWritable !== false, // undefined (older server) → assume writable
       }
     }
     case 'camera.state': {

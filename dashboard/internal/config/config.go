@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"log/slog"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -103,10 +105,21 @@ func Load(path string) (*Config, error) {
 	if path != "" {
 		if b, err := os.ReadFile(path); err == nil {
 			if err := yaml.Unmarshal(b, c); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("parse config %s: %w", path, err)
 			}
-		} else if !os.IsNotExist(err) {
-			return nil, err
+		} else if os.IsNotExist(err) {
+			slog.Info("no config file; starting with defaults — add printers/cameras from the UI", "path", path)
+		} else {
+			// Unreadable for some reason other than "missing" — most commonly a
+			// directory that Docker auto-creates when a bind-mounted config FILE
+			// doesn't exist on the host (read returns EISDIR, not IsNotExist). Don't
+			// crash: warn and run on defaults — the UI and the writable device store
+			// still work. A present-but-malformed file is handled above (fatal).
+			reason := err.Error()
+			if st, serr := os.Stat(path); serr == nil && st.IsDir() {
+				reason = "path is a directory (likely a bind-mount of a config file that doesn't exist on the host)"
+			}
+			slog.Warn("config not readable; starting with defaults — add printers/cameras from the UI", "path", path, "reason", reason)
 		}
 	}
 	if v := os.Getenv("DASHBOARD_TOKEN"); v != "" {

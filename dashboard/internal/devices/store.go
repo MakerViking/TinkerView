@@ -67,6 +67,11 @@ type CameraSettings struct {
 	Snapshots  bool     `json:"snapshots"`
 	Objects    []string `json:"objects,omitempty"`
 	Zones      []Zone   `json:"zones,omitempty"`
+	// Image transform (applied at the go2rtc source via an ffmpeg transcode, so it
+	// affects the live tile, recordings, snapshots and detection alike).
+	Rotate int  `json:"rotate,omitempty"` // 0|90|180|270 (clockwise degrees)
+	FlipH  bool `json:"flipH,omitempty"`
+	FlipV  bool `json:"flipV,omitempty"`
 }
 
 // DetectionSettings is the normalized, UI-editable Frigate object-detection config:
@@ -78,7 +83,7 @@ type CameraSettings struct {
 type DetectionSettings struct {
 	Detector string `json:"detector"`          // cpu|openvino|edgetpu|onnx|rocm|hailo8l
 	Device   string `json:"device,omitempty"`  // openvino: GPU|NPU|CPU|AUTO ; edgetpu: usb|pci
-	Hwaccel  string `json:"hwaccel,omitempty"`  // "" | vaapi | qsv-h264 | qsv-h265 | nvidia | rpi-64-h264
+	Hwaccel  string `json:"hwaccel,omitempty"` // "" | vaapi | qsv-h264 | qsv-h265 | nvidia | rpi-64-h264
 	// Model is used by the onnx/rocm detectors (the user supplies an exported .onnx);
 	// openvino uses the bundled model, and cpu/edgetpu/hailo use their bundled models
 	// (these leave the model fields blank).
@@ -101,16 +106,28 @@ type CameraRecord struct {
 	// Username/Password, when set, are injected into Src's stream URL by Source()
 	// so the credentials live in one place instead of being embedded in the URL.
 	// Stored in plaintext like printer API keys; Password is never sent to clients.
-	Username   string `yaml:"username,omitempty" json:"username,omitempty"`
-	Password   string `yaml:"password,omitempty" json:"-"`
-	Promoted   bool   `yaml:"promoted" json:"promoted"`
-	Detect     bool   `yaml:"detect,omitempty" json:"detect,omitempty"`
-	Record     bool   `yaml:"record,omitempty" json:"record,omitempty"`
-	RecordDays int      `yaml:"record_days,omitempty" json:"recordDays,omitempty"`
-	Snapshots  bool     `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
-	RecordMode string   `yaml:"record_mode,omitempty" json:"recordMode,omitempty"` // active_objects|motion|all
-	Objects    []string `yaml:"objects,omitempty" json:"objects,omitempty"`       // tracked objects; default person,car
-	Zones      []Zone   `yaml:"zones,omitempty" json:"zones,omitempty"`
+	Username string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password string `yaml:"password,omitempty" json:"-"`
+	Promoted bool   `yaml:"promoted" json:"promoted"`
+	// ConfigStream marks a camera whose go2rtc stream is defined in Frigate's config
+	// (a hand-authored camera "adopted" into the store to apply an image transform),
+	// as opposed to a UI-added camera served as a runtime go2rtc stream. When set,
+	// the reconcile loop won't re-PUT it at runtime and stream edits go through the
+	// Frigate config + restart. Promoted cameras are always config streams too.
+	ConfigStream bool     `yaml:"config_stream,omitempty" json:"-"`
+	Detect       bool     `yaml:"detect,omitempty" json:"detect,omitempty"`
+	Record       bool     `yaml:"record,omitempty" json:"record,omitempty"`
+	RecordDays   int      `yaml:"record_days,omitempty" json:"recordDays,omitempty"`
+	Snapshots    bool     `yaml:"snapshots,omitempty" json:"snapshots,omitempty"`
+	RecordMode   string   `yaml:"record_mode,omitempty" json:"recordMode,omitempty"` // active_objects|motion|all
+	Objects      []string `yaml:"objects,omitempty" json:"objects,omitempty"`        // tracked objects; default person,car
+	Zones        []Zone   `yaml:"zones,omitempty" json:"zones,omitempty"`
+	// Image transform, re-applied to the go2rtc source by BuildTransformSource. Src
+	// always stays the pristine base; these fields drive the wrapper so editing is
+	// idempotent (resetting to 0/no-flip removes the transcode wrapper entirely).
+	Rotate int  `yaml:"rotate,omitempty" json:"rotate,omitempty"` // 0|90|180|270 (clockwise degrees)
+	FlipH  bool `yaml:"flip_h,omitempty" json:"flipH,omitempty"`
+	FlipV  bool `yaml:"flip_v,omitempty" json:"flipV,omitempty"`
 }
 
 // Source returns the go2rtc source for this camera with its credentials injected
@@ -144,6 +161,96 @@ func injectCredentials(src, user, pass string) string {
 	}
 	u.User = url.UserPassword(user, pass)
 	return prefix + u.String() + frag
+}
+
+// BuildTransformSource wraps a credential-injected go2rtc source so it is rotated/
+// flipped via an ffmpeg transcode. rotate is clockwise degrees (0|90|180|270); the
+// filters are applied rotate-first then flips, joined into a single ffmpeg "-vf"
+// chain emitted as "#video=h264#raw=-vf <chain>" (+"#hardware" on a GPU host). A
+// base already starting "ffmpeg:" has the params merged onto it rather than nested.
+//
+// It returns base unchanged when no transform is requested, and an error when the
+// transform can't be applied: an "exec:" or unparseable base, or a base that
+// already carries a "raw="/"rotate=" go2rtc param (a second "-vf" would conflict).
+func BuildTransformSource(base string, rotate int, flipH, flipV, hardware bool) (string, error) {
+	chain := transformChain(rotate, flipH, flipV)
+	if chain == "" {
+		return base, nil // no-op: leave the base pristine
+	}
+	if strings.HasPrefix(base, "exec:") {
+		return "", fmt.Errorf("image rotate/flip needs an ffmpeg transcode, which isn't possible for an exec: source")
+	}
+
+	// Split off an existing "ffmpeg:" prefix and "#…" option fragment. We always
+	// re-emit an "ffmpeg:" source below, so the prefix itself is just stripped.
+	rest := strings.TrimPrefix(base, "ffmpeg:")
+	input, fragment := rest, ""
+	if i := strings.IndexByte(rest, '#'); i >= 0 {
+		input, fragment = rest[:i], rest[i:]
+	}
+	if input == "" {
+		return "", fmt.Errorf("camera source is empty")
+	}
+
+	// Existing params (everything after the input). Reject a source that already
+	// uses a raw/-vf filter or a rotate param — we'd produce a conflicting second
+	// "-vf" and silently corrupt the pipeline.
+	params := splitParams(fragment)
+	hasVideoH264 := false
+	for _, p := range params {
+		switch {
+		case strings.HasPrefix(p, "raw=") || strings.HasPrefix(p, "rotate="):
+			return "", fmt.Errorf("this camera's source already uses a raw ffmpeg filter; clear it before using image controls")
+		case p == "video=h264":
+			hasVideoH264 = true
+		case p == "hardware":
+			hardware = false // already present; don't duplicate
+		}
+	}
+
+	out := "ffmpeg:" + input
+	for _, p := range params {
+		out += "#" + p
+	}
+	if !hasVideoH264 {
+		out += "#video=h264"
+	}
+	out += "#raw=-vf " + chain
+	if hardware {
+		out += "#hardware"
+	}
+	return out, nil
+}
+
+// splitParams splits a leading "#a#b#c" option fragment into ["a","b","c"].
+func splitParams(fragment string) []string {
+	fragment = strings.TrimPrefix(fragment, "#")
+	if fragment == "" {
+		return nil
+	}
+	return strings.Split(fragment, "#")
+}
+
+// transformChain returns the ffmpeg "-vf" filter chain for the given rotate/flip,
+// or "" when the transform is the identity (rotate 0, no flips). rotate is
+// clockwise degrees; filters are rotate-first then flips.
+func transformChain(rotate int, flipH, flipV bool) string {
+	var parts []string
+	switch rotate {
+	case 90:
+		parts = append(parts, "transpose=1") // 90° clockwise
+	case 180:
+		parts = append(parts, "transpose=2", "transpose=2")
+	case 270:
+		parts = append(parts, "transpose=2") // 90° counter-clockwise
+	}
+	if flipH {
+		parts = append(parts, "hflip")
+	}
+	if flipV {
+		parts = append(parts, "vflip")
+	}
+	return strings.Join(parts, ",")
 }
 
 // Store persists StoreData to a single YAML file, guarded by a mutex. It is the

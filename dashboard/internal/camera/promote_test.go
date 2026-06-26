@@ -107,8 +107,9 @@ func TestInsertAndRemoveCamera(t *testing.T) {
 	}
 }
 
-// TestCameraBlockRecordModeAndZones: object-only recording (record.retain.mode)
-// and a detection zone (normalized flat coords + alerts gated to the zone).
+// TestCameraBlockRecordModeAndZones: object-only recording (Frigate 0.17
+// record.detections/alerts.retain) and a detection zone (normalized flat coords
+// + alerts gated to the zone).
 func TestCameraBlockRecordModeAndZones(t *testing.T) {
 	rec := devices.CameraRecord{
 		Name:       "yard",
@@ -124,17 +125,23 @@ func TestCameraBlockRecordModeAndZones(t *testing.T) {
 			Objects:     []string{"car"},
 		}},
 	}
-	out, err := updateCameraBlockYAML(sampleConfig, "printer1", rec)
+	out, err := updateCameraStreamAndBlockYAML(sampleConfig, "printer1", "rtsp://127.0.0.1:8554/printer1", rec)
 	if err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	var parsed struct {
 		Cameras map[string]struct {
 			Record struct {
-				Retain struct {
-					Mode string `yaml:"mode"`
-					Days int    `yaml:"days"`
-				} `yaml:"retain"`
+				Detections struct {
+					Retain struct {
+						Days int `yaml:"days"`
+					} `yaml:"retain"`
+				} `yaml:"detections"`
+				Alerts struct {
+					Retain struct {
+						Days int `yaml:"days"`
+					} `yaml:"retain"`
+				} `yaml:"alerts"`
 			} `yaml:"record"`
 			Zones map[string]struct {
 				Coordinates string `yaml:"coordinates"`
@@ -150,8 +157,9 @@ func TestCameraBlockRecordModeAndZones(t *testing.T) {
 		t.Fatalf("config does not parse: %v\n%s", err, out)
 	}
 	cam := parsed.Cameras["printer1"]
-	if cam.Record.Retain.Mode != "active_objects" || cam.Record.Retain.Days != 7 {
-		t.Errorf("record retain = %+v, want active_objects/7", cam.Record.Retain)
+	if cam.Record.Detections.Retain.Days != 7 || cam.Record.Alerts.Retain.Days != 7 {
+		t.Errorf("record retain = detections %d / alerts %d days, want 7/7",
+			cam.Record.Detections.Retain.Days, cam.Record.Alerts.Retain.Days)
 	}
 	z, ok := cam.Zones["driveway_area"]
 	if !ok {

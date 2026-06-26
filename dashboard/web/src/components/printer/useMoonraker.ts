@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import { withToken } from '@/lib/auth'
 
 // moonrakerUrl builds a same-origin URL through the dashboard's read-only
-// per-printer Moonraker proxy (file browse / thumbnails / history).
+// per-printer Moonraker proxy (file browse / thumbnails / history). It carries the
+// shared token as ?token= so <img> thumbnails (which can't set an auth header) work
+// when DASHBOARD_TOKEN is configured; a no-op when it isn't.
 export function moonrakerUrl(id: string, path: string): string {
-  return `/api/printers/${encodeURIComponent(id)}/moonraker${path}`
+  return withToken(`/api/printers/${encodeURIComponent(id)}/moonraker${path}`)
 }
 
 // useMoonraker fetches JSON from a printer's Moonraker via the proxy. Pass a null

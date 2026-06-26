@@ -31,6 +31,10 @@ type Snapshot struct {
 	Disks         []adapter.DiskUsage             `json:"disks"`
 	FrigateOnline bool                            `json:"frigateOnline"`
 	Alerts        []adapter.Alert                 `json:"alerts"`
+	// DataWritable is false when the writable data dir (devices store) can't be
+	// written — UI add/edit of devices will fail until it's fixed (e.g. chown to the
+	// container uid). Surfaced as a persistent banner. Defaults true.
+	DataWritable bool `json:"dataWritable"`
 }
 
 // Notice is the user-facing backend message type. It now lives in

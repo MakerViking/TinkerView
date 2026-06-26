@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
 	"github.com/MakerViking/TinkerView/internal/adapter"
 	"github.com/MakerViking/TinkerView/internal/bus"
 	"github.com/MakerViking/TinkerView/internal/devices"
+	"github.com/coder/websocket"
 )
 
 const alertRing = 100
@@ -62,12 +62,14 @@ type Hub struct {
 	disks             []adapter.DiskUsage
 	frigateOnline     bool
 	alerts            []adapter.Alert
+	dataWritable      bool
 }
 
 // New builds a Hub. token (optional) gates the WS handshake via ?token=.
 func New(b *bus.Bus, cmd CommandHandler, token string) *Hub {
 	return &Hub{
 		bus: b, cmd: cmd, token: token,
+		dataWritable:      true, // until told otherwise (SetDataWritable)
 		clients:           make(map[*client]struct{}),
 		cameras:           make(map[string]adapter.CameraState),
 		printers:          make(map[string]adapter.PrinterState),
@@ -247,7 +249,17 @@ func (h *Hub) Snapshot() Snapshot {
 		Disks:         h.disks,
 		FrigateOnline: h.frigateOnline,
 		Alerts:        append([]adapter.Alert(nil), h.alerts...),
+		DataWritable:  h.dataWritable,
 	}
+}
+
+// SetDataWritable records whether the writable data dir is usable, so the snapshot
+// can warn the UI (a persistent banner) that device add/edit will fail. Set once at
+// startup from the data-dir probe.
+func (h *Hub) SetDataWritable(ok bool) {
+	h.mu.Lock()
+	h.dataWritable = ok
+	h.mu.Unlock()
 }
 
 func (h *Hub) snapshotBytes() []byte {
@@ -460,4 +472,3 @@ func mergeCamera(cur *adapter.CameraState, d adapter.CameraState) {
 		cur.Promoted = d.Promoted
 	}
 }
-

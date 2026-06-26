@@ -85,7 +85,7 @@ func (m *Manager) AddCamera(name, srcKind, srcInput, username, password string) 
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
-	if err := m.g2.PutStream(ctx, name, rec.Source()); err != nil {
+	if err := m.g2.PutStream(ctx, name, m.sourceWithTransform(rec)); err != nil {
 		// Keep the record (reconcile will retry); report the failure.
 		return fmt.Errorf("camera saved but go2rtc rejected the stream: %w", err)
 	}
@@ -170,14 +170,14 @@ func (m *Manager) EditCamera(name, newName, newSrcKind, newSrcInput, username, p
 				return nil, fmt.Errorf("save camera: %w", err)
 			}
 			_ = m.g2.DeleteStream(ctx, name)
-			_ = m.g2.PutStream(ctx, newRec.Name, newRec.Source())
+			_ = m.g2.PutStream(ctx, newRec.Name, m.sourceWithTransform(newRec))
 			m.publishDeleted(name)
 			m.publishManaged(newRec)
 		} else {
 			if err := m.store.UpsertCamera(newRec); err != nil {
 				return nil, fmt.Errorf("save camera: %w", err)
 			}
-			_ = m.g2.PutStream(ctx, newRec.Name, newRec.Source()) // PUT replaces the source
+			_ = m.g2.PutStream(ctx, newRec.Name, m.sourceWithTransform(newRec)) // PUT replaces the source
 			m.publishManaged(newRec)
 		}
 		slog.Info("camera edited", "name", newRec.Name)
@@ -265,8 +265,8 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 	live, err := m.g2.ListStreams(ctx)
 	for _, rec := range m.store.Cameras() {
 		m.publishManaged(rec) // keep Managed/Promoted flags fresh for the UI
-		if rec.Promoted {
-			continue // Frigate owns this stream now
+		if rec.Promoted || rec.ConfigStream {
+			continue // Frigate's config owns this stream now
 		}
 		if err != nil {
 			continue // go2rtc unreachable this tick; retry next
@@ -278,7 +278,7 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 			if _, still := m.store.Camera(rec.Name); !still {
 				continue
 			}
-			if e := m.g2.PutStream(ctx, rec.Name, rec.Source()); e != nil {
+			if e := m.g2.PutStream(ctx, rec.Name, m.sourceWithTransform(rec)); e != nil {
 				slog.Warn("camera reconcile: put failed", "name", rec.Name, "err", e)
 			}
 		}
@@ -286,6 +286,20 @@ func (m *Manager) reconcileOnce(ctx context.Context) {
 }
 
 // ----- helpers -----
+
+// sourceWithTransform returns the camera's go2rtc source with credentials and any
+// rotate/flip transform applied. On a transform-build error (e.g. a source that
+// already carries a raw ffmpeg filter) it logs and degrades to the un-transformed
+// source so the stream keeps working; user-initiated saves validate the transform
+// up front (see EditCameraSettings) so they surface the error instead.
+func (m *Manager) sourceWithTransform(rec devices.CameraRecord) string {
+	src, err := devices.BuildTransformSource(rec.Source(), rec.Rotate, rec.FlipH, rec.FlipV, m.hardware)
+	if err != nil {
+		slog.Warn("camera transform skipped", "name", rec.Name, "err", err)
+		return rec.Source()
+	}
+	return src
+}
 
 // async runs fn on a recovering goroutine with a slow-op timeout derived from the
 // manager's base context (so a client disconnect can't abort a Frigate restart).
@@ -356,7 +370,9 @@ func (m *Manager) checkStreamCollision(ctx context.Context, name string) error {
 }
 
 func (m *Manager) publishManaged(rec devices.CameraRecord) {
-	managed := true
+	// Adopted hand-authored cameras (ConfigStream) are only image-transform managed —
+	// they stay read-only in the UI (no edit/remove/promote), so report managed:false.
+	managed := !rec.ConfigStream
 	promoted := rec.Promoted
 	m.bus.Publish(bus.Event{
 		Source: bus.SourceFrigate, Kind: bus.KindCameraState, ID: rec.Name, Ts: time.Now(),

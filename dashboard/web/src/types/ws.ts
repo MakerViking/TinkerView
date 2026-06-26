@@ -166,6 +166,9 @@ export interface CameraSettings {
   snapshots: boolean
   objects?: string[]
   zones?: Zone[]
+  rotate?: number // 0 | 90 | 180 | 270 (clockwise degrees)
+  flipH?: boolean
+  flipV?: boolean
 }
 
 // DetectionSettings mirrors the Go devices.DetectionSettings JSON shape (Detection tab).
@@ -243,6 +246,7 @@ export interface Snapshot {
   disks: DiskUsage[]
   frigateOnline: boolean
   alerts: Alert[]
+  dataWritable?: boolean // false → the writable data dir can't be written (device add/edit fails)
 }
 
 // ----- server -> client -----

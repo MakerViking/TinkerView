@@ -21,7 +21,7 @@ export function CameraTile({ name }: { name: string }) {
   const [copied, setCopied] = useState<'' | 'rtsp' | 'http'>('')
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settings, setSettings] = useState<'' | 'full' | 'image'>('')
   const { ask, confirmNode } = useConfirm()
   const tileRef = useRef<HTMLDivElement>(null)
   // HQ preference is remembered per camera across reloads (localStorage).
@@ -43,7 +43,12 @@ export function CameraTile({ name }: { name: string }) {
   const menuActions: MenuAction[] = []
   if (cam?.managed) {
     menuActions.push({ label: 'Edit…', onClick: () => setEditing(true) })
-    menuActions.push({ label: 'Recording & detection…', onClick: () => setSettingsOpen(true) })
+    menuActions.push({ label: 'Recording & detection…', onClick: () => setSettings('full') })
+  }
+  // Image controls (rotate/flip) are available for every camera, including the
+  // hand-authored config.yaml ones (those are adopted on first change).
+  menuActions.push({ label: 'Image (rotate/flip)…', onClick: () => setSettings('image') })
+  if (cam?.managed) {
     if (cam.promoted) {
       menuActions.push({
         label: 'Disable Frigate NVR',
@@ -167,7 +172,9 @@ export function CameraTile({ name }: { name: string }) {
       </div>
 
       {editing && <AddCameraModal existingName={name} onClose={() => setEditing(false)} />}
-      {settingsOpen && <CameraSettingsModal name={name} onClose={() => setSettingsOpen(false)} />}
+      {settings && (
+        <CameraSettingsModal name={name} imageOnly={settings === 'image'} onClose={() => setSettings('')} />
+      )}
       {confirmNode}
 
       {confirmDelete && (

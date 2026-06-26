@@ -77,7 +77,7 @@ func main() {
 
 	// --- writable device store (UI-managed printers/cameras + Frigate backups) ---
 	// config.yaml is mounted read-only, so UI changes persist here under DataDir.
-	probeDataDir(cfg.DataDir)
+	dataWritable := probeDataDir(cfg.DataDir)
 	store, err := devices.Open(filepath.Join(cfg.DataDir, "devices.yaml"))
 	if err != nil {
 		slog.Error("open device store", "err", err)
@@ -155,6 +155,7 @@ func main() {
 
 	cmd := &commandRouter{printers: mgr, cameras: cameraMgr, docker: dockerSrc, frigate: frigateAdapter}
 	h := hub.New(b, cmd, cfg.Auth.Token)
+	h.SetDataWritable(dataWritable)
 	// cameraMgr edits Frigate's global config (known plates + detection hardware)
 	// only when Frigate config editing is available; nil otherwise so the API
 	// reports those endpoints as unavailable.
@@ -291,21 +292,23 @@ func toRecord(p config.Printer) devices.PrinterRecord {
 }
 
 // probeDataDir ensures the writable data dir exists and is writable, logging a
-// loud warning otherwise so CRUD-save failures are diagnosable at startup.
-func probeDataDir(dir string) {
+// loud warning otherwise so CRUD-save failures are diagnosable at startup. Returns
+// whether the dir is usable (fed to the hub for a persistent UI banner).
+func probeDataDir(dir string) bool {
 	if dir == "" {
-		return
+		return true
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		slog.Warn("data dir not creatable; adding/editing devices will fail", "dir", dir, "err", err)
-		return
+		return false
 	}
 	probe := filepath.Join(dir, ".write-probe")
 	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
 		slog.Warn("data dir not writable; adding/editing devices will fail", "dir", dir, "err", err)
-		return
+		return false
 	}
 	_ = os.Remove(probe)
+	return true
 }
 
 // diskPaths returns the filesystems to report usage for (Frigate media + root).

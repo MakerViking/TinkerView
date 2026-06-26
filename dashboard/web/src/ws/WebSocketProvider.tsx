@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react'
 import { useReconnectingSocket, type WsStatus } from './useReconnectingSocket'
 import { useLive } from '@/store/live'
+import { withToken } from '@/lib/auth'
 import type { ClientMsg } from '@/types/ws'
 
 interface WsContext {
@@ -14,7 +15,8 @@ export const useWs = () => useContext(Ctx)
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/ws`
+  // ?token= when a shared token is configured (the WS can't send an auth header).
+  return withToken(`${proto}://${location.host}/ws`)
 }
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {

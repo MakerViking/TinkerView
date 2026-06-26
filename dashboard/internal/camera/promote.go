@@ -76,7 +76,7 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 	if err != nil {
 		return fmt.Errorf("back up Frigate config (aborting): %w", err)
 	}
-	newRaw, err := insertCameraYAML(raw, name, rec.Source(), rec)
+	newRaw, err := insertCameraYAML(raw, name, m.sourceWithTransform(rec), rec)
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
 	}
@@ -133,7 +133,7 @@ func (m *Manager) editPromotedSource(ctx context.Context, want devices.CameraRec
 	// Carry the new source/credentials onto the current record (preserve NVR options).
 	next := cur
 	next.Src, next.Username, next.Password = want.Src, want.Username, want.Password
-	newRaw, err := updateStreamSourceYAML(raw, next.Name, next.Source())
+	newRaw, err := updateStreamSourceYAML(raw, next.Name, m.sourceWithTransform(next))
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
 	}
@@ -173,6 +173,9 @@ func (m *Manager) Settings(name string) (devices.CameraSettings, bool) {
 		Snapshots:  rec.Snapshots,
 		Objects:    rec.Objects,
 		Zones:      rec.Zones,
+		Rotate:     rec.Rotate,
+		FlipH:      rec.FlipH,
+		FlipV:      rec.FlipV,
 	}, true
 }
 
@@ -183,26 +186,63 @@ func (m *Manager) Settings(name string) (devices.CameraSettings, bool) {
 // asynchronously (mirroring editPromotedSource), reported via notices.
 func (m *Manager) EditCameraSettings(name string, s devices.CameraSettings) error {
 	m.mu.Lock()
-	rec, ok := m.store.Camera(name)
-	if !ok {
-		m.mu.Unlock()
-		return fmt.Errorf("unknown camera %q", name)
+	rec, inStore := m.store.Camera(name)
+	m.mu.Unlock()
+
+	// Not in the store → a hand-authored Frigate-config camera. Adopt it and apply
+	// the image transform ONLY (we never touch its hand-authored detect/record/zones),
+	// asynchronously since it edits the Frigate config (and may restart Frigate).
+	if !inStore {
+		m.async(func(ctx context.Context) {
+			if err := m.adoptAndApplyTransform(ctx, name, s); err != nil {
+				m.notice("error", err.Error())
+			}
+		})
+		return nil
 	}
-	promoted := rec.Promoted
-	if !promoted {
-		// Persist now; applied on next promote.
+
+	// Validate the requested transform up front so an unsupported source (exec:, or
+	// one that already carries a raw ffmpeg filter) surfaces the error to the user
+	// instead of silently no-op'ing.
+	if _, err := devices.BuildTransformSource(rec.Source(), s.Rotate, s.FlipH, s.FlipV, m.hardware); err != nil {
+		return err
+	}
+
+	// Adopted config-stream camera: only the image transform is dashboard-managed;
+	// rewrite the Frigate go2rtc stream + restart (async).
+	if rec.ConfigStream {
+		m.async(func(ctx context.Context) {
+			if err := m.applyCameraSettings(ctx, name, s); err != nil {
+				m.notice("error", err.Error())
+			}
+		})
+		return nil
+	}
+
+	if !rec.Promoted {
+		// UI-added live tile: persist the settings (detect/record take effect on the
+		// next promote) and re-PUT the runtime go2rtc stream so the transform applies
+		// to the live tile immediately.
+		m.mu.Lock()
 		applySettings(&rec, s)
 		err := m.store.UpsertCamera(rec)
 		if err == nil {
 			m.publishManaged(rec)
 		}
+		src := m.sourceWithTransform(rec)
 		m.mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("save camera: %w", err)
 		}
+		ctx, cancel := context.WithTimeout(m.base, opTimeout)
+		defer cancel()
+		if err := m.g2.PutStream(ctx, name, src); err != nil {
+			return fmt.Errorf("update live stream: %w", err)
+		}
 		return nil
 	}
-	m.mu.Unlock()
+
+	// Managed + promoted: rewrite the Frigate config (stream + camera block) + restart.
 	m.async(func(ctx context.Context) {
 		if err := m.applyCameraSettings(ctx, name, s); err != nil {
 			m.notice("error", err.Error())
@@ -211,9 +251,11 @@ func (m *Manager) EditCameraSettings(name string, s devices.CameraSettings) erro
 	return nil
 }
 
-// applyCameraSettings rewrites a promoted camera's cameras[<name>] block from the
-// new settings and restarts Frigate: backup → build → validate → persist → save →
-// health-check → rollback (store + config) on failure.
+// applyCameraSettings applies new settings to a stored Frigate-config camera (a
+// managed+promoted camera, or an adopted hand-authored one) and restarts Frigate.
+// A managed+promoted camera's whole cameras[<name>] block is rebuilt from the
+// settings; an adopted (ConfigStream) camera only gets its go2rtc stream rewritten
+// for the image transform — its hand-authored block is left untouched.
 func (m *Manager) applyCameraSettings(ctx context.Context, name string, s devices.CameraSettings) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -224,12 +266,62 @@ func (m *Manager) applyCameraSettings(ctx context.Context, name string, s device
 	if !ok {
 		return fmt.Errorf("unknown camera %q", name)
 	}
-	if !cur.Promoted {
-		return fmt.Errorf("camera %q is no longer promoted", name)
+	if !cur.Promoted && !cur.ConfigStream {
+		return fmt.Errorf("camera %q is not a Frigate-config camera", name)
 	}
 	next := cur
-	applySettings(&next, s)
+	if cur.ConfigStream {
+		applyTransformOnly(&next, s) // hand-authored cam: image transform only
+	} else {
+		applySettings(&next, s) // dashboard owns the full camera block
+	}
 	m.notice("info", fmt.Sprintf("Applying %q settings — Frigate will restart (~25s)…", name))
+	return m.applyConfigStreamLocked(ctx, next, func() { _ = m.store.UpsertCamera(cur) })
+}
+
+// adoptAndApplyTransform brings a hand-authored Frigate-config camera under the
+// dashboard's image-transform management: it reads the camera's base go2rtc source
+// from the live config, persists a ConfigStream record carrying only the requested
+// transform, then rewrites the go2rtc stream + restarts Frigate. The camera stays
+// otherwise read-only in the UI (managed:false). Caller runs this asynchronously.
+func (m *Manager) adoptAndApplyTransform(ctx context.Context, name string, s devices.CameraSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.frigate == nil {
+		return fmt.Errorf("Frigate config editing is not available")
+	}
+	if cur, exists := m.store.Camera(name); exists {
+		// Raced with another adopt; apply onto the now-stored record.
+		next := cur
+		applyTransformOnly(&next, s)
+		return m.applyConfigStreamLocked(ctx, next, func() { _ = m.store.UpsertCamera(cur) })
+	}
+	raw, err := m.frigate.GetRaw(ctx)
+	if err != nil {
+		return fmt.Errorf("read Frigate config: %w", err)
+	}
+	base, isCamera, err := readConfigStream(raw, name)
+	if err != nil {
+		return err
+	}
+	rec := devices.CameraRecord{Name: name, Src: base, ConfigStream: true, Promoted: isCamera}
+	applyTransformOnly(&rec, s)
+	if _, err := devices.BuildTransformSource(rec.Source(), rec.Rotate, rec.FlipH, rec.FlipV, m.hardware); err != nil {
+		return err
+	}
+	m.notice("info", fmt.Sprintf("Applying image settings to %q — Frigate will restart (~25s)…", name))
+	return m.applyConfigStreamLocked(ctx, rec, func() {
+		_, _ = m.store.DeleteCamera(name)
+		m.publishDeleted(name)
+	})
+}
+
+// applyConfigStreamLocked rewrites a Frigate-config camera's go2rtc stream (and, for
+// a managed+promoted camera, its cameras[<name>] block) from `next`, then validates,
+// persists, saves+restarts Frigate, and health-checks — calling revert (store
+// rollback) if the save or restart fails. Caller holds m.mu.
+func (m *Manager) applyConfigStreamLocked(ctx context.Context, next devices.CameraRecord, revert func()) error {
+	name := next.Name
 	raw, err := m.frigate.GetRaw(ctx)
 	if err != nil {
 		return fmt.Errorf("read Frigate config: %w", err)
@@ -238,23 +330,30 @@ func (m *Manager) applyCameraSettings(ctx context.Context, name string, s device
 	if err != nil {
 		return fmt.Errorf("back up Frigate config (aborting): %w", err)
 	}
-	newRaw, err := updateCameraBlockYAML(raw, name, next)
+	src := m.sourceWithTransform(next)
+	// Rebuild the camera block only when the dashboard fully owns it (managed+promoted);
+	// for adopted (ConfigStream) cameras we touch only the go2rtc stream.
+	if next.Promoted && !next.ConfigStream {
+		raw, err = updateCameraStreamAndBlockYAML(raw, name, src, next)
+	} else {
+		raw, err = updateStreamSourceYAML(raw, name, src)
+	}
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
 	}
-	if err := m.frigate.Validate(ctx, newRaw); err != nil {
+	if err := m.frigate.Validate(ctx, raw); err != nil {
 		return fmt.Errorf("Frigate rejected the config: %w", err)
 	}
 	if err := m.store.UpsertCamera(next); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
-	if err := m.frigate.SaveRestart(ctx, newRaw); err != nil {
-		_ = m.store.UpsertCamera(cur)
+	if err := m.frigate.SaveRestart(ctx, raw); err != nil {
+		revert()
 		return fmt.Errorf("save Frigate config: %w", err)
 	}
 	if !m.frigate.WaitHealthy(ctx, frigateHealthTimeout) {
 		m.restoreBackup(ctx, backupPath)
-		_ = m.store.UpsertCamera(cur)
+		revert()
 		return fmt.Errorf("Frigate did not come back after the settings change; restored previous config (backup: %s)", backupPath)
 	}
 	m.publishManaged(next)
@@ -272,6 +371,18 @@ func applySettings(r *devices.CameraRecord, s devices.CameraSettings) {
 	r.Snapshots = s.Snapshots
 	r.Objects = s.Objects
 	r.Zones = s.Zones
+	r.Rotate = s.Rotate
+	r.FlipH = s.FlipH
+	r.FlipV = s.FlipV
+}
+
+// applyTransformOnly copies just the image-transform fields onto a record — used for
+// adopted hand-authored cameras, whose detect/record/zones config the dashboard does
+// not own and must not overwrite.
+func applyTransformOnly(r *devices.CameraRecord, s devices.CameraSettings) {
+	r.Rotate = s.Rotate
+	r.FlipH = s.FlipH
+	r.FlipV = s.FlipV
 }
 
 // DemoteCamera validates quickly, then runs the (slow, Frigate-restarting)
@@ -310,7 +421,7 @@ func (m *Manager) demoteWork(ctx context.Context, name string) error {
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
-	_ = m.g2.PutStream(ctx, name, rec.Source()) // resume the live tile immediately
+	_ = m.g2.PutStream(ctx, name, m.sourceWithTransform(rec)) // resume the live tile immediately
 	m.publishManaged(rec)
 	m.notice("info", fmt.Sprintf("Camera %q demoted; kept as a live tile", name))
 	slog.Info("camera demoted", "name", name)
@@ -400,10 +511,18 @@ func insertCameraYAML(raw, name, src string, rec devices.CameraRecord) (string, 
 	})
 }
 
-// updateCameraBlockYAML replaces cameras[name] with a freshly-built block (new
-// detect/record/zones from the record), leaving the go2rtc stream untouched.
-func updateCameraBlockYAML(raw, name string, rec devices.CameraRecord) (string, error) {
+// updateCameraStreamAndBlockYAML rewrites both go2rtc.streams[name] (= [src], for
+// the image transform) and the cameras[name] block (freshly built from the record)
+// in a single edit — used when a managed+promoted camera's settings change.
+func updateCameraStreamAndBlockYAML(raw, name, src string, rec devices.CameraRecord) (string, error) {
 	return editConfigYAML(raw, func(root *yaml.Node) error {
+		streams := ensureMap(ensureMap(root, "go2rtc"), "streams")
+		srcNode, err := yamlValueNode([]string{src})
+		if err != nil {
+			return err
+		}
+		setMapKey(streams, name, srcNode)
+
 		cams := ensureMap(root, "cameras")
 		block, err := yamlValueNode(cameraBlock(name, rec))
 		if err != nil {
@@ -412,6 +531,55 @@ func updateCameraBlockYAML(raw, name string, rec devices.CameraRecord) (string, 
 		setMapKey(cams, name, block)
 		return nil
 	})
+}
+
+// readConfigStream reads a hand-authored camera's base go2rtc source from the raw
+// Frigate config (go2rtc.streams[name]) and reports whether it is also a Frigate NVR
+// camera (cameras[name] exists). It errors when the camera has no go2rtc restream
+// (image controls don't apply) or has multiple sources (unsupported).
+func readConfigStream(raw, name string) (base string, isCamera bool, err error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+		return "", false, fmt.Errorf("parse config: %w", err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", false, fmt.Errorf("unexpected config shape")
+	}
+	root := doc.Content[0]
+	noStream := fmt.Errorf("camera %q isn't restreamed through go2rtc, so image controls aren't available — re-add it through the dashboard", name)
+	g2 := getMapValue(root, "go2rtc")
+	if g2 == nil {
+		return "", false, noStream
+	}
+	streams := getMapValue(g2, "streams")
+	if streams == nil {
+		return "", false, noStream
+	}
+	sv := getMapValue(streams, name)
+	if sv == nil {
+		return "", false, noStream
+	}
+	switch sv.Kind {
+	case yaml.ScalarNode:
+		base = sv.Value
+	case yaml.SequenceNode:
+		if len(sv.Content) == 0 {
+			return "", false, fmt.Errorf("camera %q has an empty go2rtc stream", name)
+		}
+		if len(sv.Content) > 1 {
+			return "", false, fmt.Errorf("camera %q has multiple go2rtc sources; image controls aren't supported for it", name)
+		}
+		base = sv.Content[0].Value
+	default:
+		return "", false, fmt.Errorf("camera %q has an unexpected go2rtc stream format", name)
+	}
+	if base == "" {
+		return "", false, fmt.Errorf("camera %q has an empty go2rtc source", name)
+	}
+	if cams := getMapValue(root, "cameras"); cams != nil && getMapValue(cams, name) != nil {
+		isCamera = true
+	}
+	return base, isCamera, nil
 }
 
 // updateStreamSourceYAML rewrites go2rtc.streams[name] = [src] without touching
@@ -453,16 +621,37 @@ func cameraBlock(name string, rec devices.CameraRecord) map[string]any {
 	if rec.Record {
 		roles = append(roles, "record")
 	}
-	// record-only-on-detect: an object-only retain mode keeps just the footage that
-	// contains tracked objects (Frigate's recording cache + default pre-roll cover
-	// the lead-up). Bare {enabled} otherwise (Frigate's default retention).
+	// Record retention. Frigate 0.17 replaced the single record.retain.{mode,days}
+	// with source-split retention, so map our three UI modes onto the new keys:
+	//   all            -> record.continuous.days          (full 24/7 timeline)
+	//   motion         -> record.motion.days              (segments with motion)
+	//   active_objects -> record.detections/alerts.retain (footage around objects)
+	// Bare {enabled} otherwise (Frigate's default retention).
 	record := map[string]any{"enabled": rec.Record}
 	if rec.Record && rec.RecordMode != "" {
-		retain := map[string]any{"mode": rec.RecordMode}
-		if rec.RecordDays > 0 {
-			retain["days"] = rec.RecordDays
+		retainDays := func() map[string]any {
+			m := map[string]any{}
+			if rec.RecordDays > 0 {
+				m["days"] = rec.RecordDays
+			}
+			return m
 		}
-		record["retain"] = retain
+		switch rec.RecordMode {
+		case "all":
+			record["continuous"] = retainDays()
+		case "motion":
+			record["motion"] = retainDays()
+		case "active_objects":
+			record["detections"] = map[string]any{"retain": retainDays()}
+			record["alerts"] = map[string]any{"retain": retainDays()}
+		}
+	}
+	// Detect resolution. A 90/270 rotation makes the restreamed frame portrait, so
+	// swap width/height to match (otherwise Frigate's detector and zone coords are
+	// miscalibrated against the rotated image).
+	dw, dh := 1280, 720
+	if rec.Rotate == 90 || rec.Rotate == 270 {
+		dw, dh = 720, 1280
 	}
 	block := map[string]any{
 		"enabled": true,
@@ -475,12 +664,12 @@ func cameraBlock(name string, rec devices.CameraRecord) map[string]any {
 				},
 			},
 		},
-		"detect":    map[string]any{"enabled": rec.Detect, "width": 1280, "height": 720},
+		"detect":    map[string]any{"enabled": rec.Detect, "width": dw, "height": dh},
 		"record":    record,
 		"snapshots": map[string]any{"enabled": rec.Snapshots},
 	}
 	if rec.Detect {
-		block["detect"] = map[string]any{"enabled": true, "width": 1280, "height": 720, "fps": 5}
+		block["detect"] = map[string]any{"enabled": true, "width": dw, "height": dh, "fps": 5}
 		objects := rec.Objects
 		if len(objects) == 0 {
 			objects = []string{"person", "car"}

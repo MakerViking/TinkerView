@@ -118,6 +118,7 @@ export function AppShell({
         </div>
       </header>
 
+      <DataDirBanner />
       <main className="flex-1 p-4 pb-24 md:pb-6">{children}</main>
 
       {/* Phone: bottom tab bar (thumb-reachable). */}
@@ -208,6 +209,26 @@ function NotificationBell({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void })
   )
 }
 
+// DataDirBanner is a persistent warning shown when the dashboard's writable data
+// directory isn't writable — the root cause of "adding a printer/camera didn't
+// save." Common on container hosts (e.g. CasaOS) where the bind-mounted data dir is
+// root-owned; the fix is to make it writable by the container's uid (65532).
+function DataDirBanner() {
+  const dataWritable = useLive((s) => s.dataWritable)
+  if (dataWritable) return null
+  return (
+    <div
+      role="alert"
+      className="border-b border-amber-500/40 bg-amber-950/80 px-4 py-2 text-center text-[13px] text-amber-100"
+    >
+      <span className="font-semibold">Data directory not writable.</span> Adding or editing printers
+      and cameras won’t save. Make the dashboard’s <code className="font-mono">/data</code> volume
+      writable by the container user (uid 65532), e.g.{' '}
+      <code className="font-mono">chown -R 65532:65532 &lt;data dir&gt;</code>.
+    </div>
+  )
+}
+
 // NoticeToast briefly surfaces backend notices (command failures, warnings) pushed
 // over the WS, so errors are visible in the UI and not just in the server log.
 function NoticeToast() {
@@ -217,8 +238,13 @@ function NoticeToast() {
   useEffect(() => {
     if (!notice) return
     setVisible(true)
-    const t = window.setTimeout(() => setVisible(false), 5000)
-    return () => window.clearTimeout(t)
+    // Errors/warnings stay until dismissed — a failed add/edit must not silently
+    // vanish after 5s (that's how "it didn't work while saving" goes unnoticed).
+    // Only transient info auto-dismisses.
+    if (notice.level !== 'warn' && notice.level !== 'error') {
+      const t = window.setTimeout(() => setVisible(false), 5000)
+      return () => window.clearTimeout(t)
+    }
   }, [notice?.ts])
 
   if (!notice || !visible) return null
