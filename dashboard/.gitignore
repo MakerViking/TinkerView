@@ -12,6 +12,8 @@ internal/web/dist/*.js
 internal/web/dist/*.css
 internal/web/dist/*.map
 internal/web/dist/favicon*
+internal/web/dist/*.png
+internal/web/dist/*.md
 
 # local run-local.sh output
 /bin/
