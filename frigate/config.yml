@@ -108,13 +108,20 @@ snapshots:
     default: 14
 
 # --- Cameras -----------------------------------------------------------------
+# Frigate requires a `cameras:` section, so two worked examples ship here — but
+# both start DISABLED, because their URLs are placeholders. An enabled camera
+# pointing at a placeholder floods the log with
+#   <cam>: Unable to read frames from ffmpeg process
+# every few seconds, which buries the errors you actually need on first start.
+# Flip `enabled: true` on each camera once its go2rtc stream above points at YOUR
+# camera. Restart Frigate to apply (the UI's disable toggle is temporary).
 cameras:
 
   # ============================ SECURITY CAM ============================
   # High-res 'record' input + low-res H.264 'detect' substream (cheap inference).
   # Force the camera to H.264 + AAC; avoid H.265 / "+"/smart codecs for live view.
   front_door:
-    enabled: true
+    enabled: false        # <-- set true after editing the go2rtc front_door URLs
     ffmpeg:
       output_args:
         record: preset-record-generic-audio-copy
@@ -144,7 +151,7 @@ cameras:
   # NO Frigate object detection (person/car is meaningless on a print bed).
   # Print-failure detection is Obico's job (see compose.obico.yml).
   printer1:
-    enabled: true
+    enabled: false        # <-- set true after editing the go2rtc printer1 URL
     ffmpeg:
       inputs:
         - path: rtsp://127.0.0.1:8554/printer1          # the H.264 transcode

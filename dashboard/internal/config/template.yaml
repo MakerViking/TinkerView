@@ -1,0 +1,61 @@
+# TinkerView dashboard config.
+#
+# This file was created for you on first run and every line is commented out, so
+# the dashboard is running on its defaults. You do NOT have to edit it: cameras
+# and printers can be added from the UI (Printers -> Add printer), and those are
+# stored next to this file in devices.yaml.
+#
+# Edit this file for the things the UI does not cover (listen address, auth token,
+# where Frigate/ntfy live), then restart the dashboard container to apply.
+# A fully worked example with every option — including printer entries for
+# Klipper/Moonraker, OctoPrint, PrusaLink and Bambu Lab — is in the repo at
+# dashboard/config.example.yaml.
+
+# HTTP listen address. The dashboard uses host networking by default, so this is
+# the port you open in a browser: http://<host>:8088
+# listen: ":8088"
+
+# auth:
+#   # Empty = open (rely on your network perimeter, e.g. Tailscale). To require a
+#   # token on the REST API + WebSocket handshake, paste a literal value here or
+#   # set the DASHBOARD_TOKEN env var (it overrides this). Do NOT write
+#   # "${DASHBOARD_TOKEN}" — this file is not env-expanded, so the literal string
+#   # would become your token and lock you out.
+#   token: ""
+
+# On host networking, 127.0.0.1 reaches the rest of the stack. On bridge
+# networking (compose.bridge.yml) use the compose service names instead, e.g.
+# http://frigate:5000 and tcp://mqtt:1883.
+# frigate:
+#   base_url: "http://127.0.0.1:5000"
+#   mqtt_addr: "tcp://127.0.0.1:1883"
+#   topic_prefix: "frigate"
+#   media_path: "/media/frigate"    # mounted read-only, for the disk-usage widget
+
+# go2rtc_url: "http://127.0.0.1:1984"
+
+# docker:
+#   enabled: true
+#   host: "tcp://127.0.0.1:2375"    # the docker-socket-proxy, NOT the raw socket
+#   watch: [frigate, mosquitto, dashboard, ntfy, docker-socket-proxy]
+
+# ntfy:
+#   base_url: "http://127.0.0.1:8092"
+#   topic: "homelab-CHANGE-ME"      # pick an unguessable topic name
+#   token: ""                       # or set the NTFY_TOKEN env var
+
+# Transcode UI-added MJPEG/raw cameras to H.264 on the GPU (go2rtc #hardware).
+# Only turn on if this host has a usable encoder (e.g. NVENC).
+# hardware_transcode: false
+
+# Printers can be added from the UI, but listing them here works too and is handy
+# for keeping a stack reproducible. See dashboard/config.example.yaml for one
+# worked entry per printer kind.
+# printers:
+#   - id: voron
+#     kind: moonraker
+#     name: "Voron 2.4"
+#     base_url: "http://192.168.1.21:7125"
+
+# quick_links:
+#   - { name: "Frigate", url: "http://127.0.0.1:5000" }

@@ -30,4 +30,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=go /out/dashboard /dashboard
 EXPOSE 8088
-ENTRYPOINT ["/dashboard", "-config", "/config.yaml"]
+# No -config: the binary resolves it (<data_dir>/config.yaml, else the legacy
+# /config.yaml mount). Passing it explicitly would pin old installs to the legacy
+# path forever. Override with DASHBOARD_CONFIG if you mount it somewhere else.
+ENTRYPOINT ["/dashboard"]

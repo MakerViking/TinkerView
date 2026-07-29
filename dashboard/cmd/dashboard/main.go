@@ -40,9 +40,10 @@ var logFile *os.File
 
 func main() {
 	var configPath string
-	flag.StringVar(&configPath, "config", "/config.yaml", "path to config.yaml")
+	flag.StringVar(&configPath, "config", "", "path to config.yaml (default: <data_dir>/config.yaml, else the legacy /config.yaml mount)")
 	flag.Parse()
 
+	configPath = config.Resolve(configPath)
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		slog.Error("load config", "err", err)
@@ -76,8 +77,12 @@ func main() {
 	}
 
 	// --- writable device store (UI-managed printers/cameras + Frigate backups) ---
-	// config.yaml is mounted read-only, so UI changes persist here under DataDir.
+	// UI changes persist here rather than in config.yaml, which is never written.
 	dataWritable := probeDataDir(cfg.DataDir)
+	if dataWritable {
+		// First run: leave an editable, fully commented config next to the store.
+		config.SeedTemplate(configPath)
+	}
 	store, err := devices.Open(filepath.Join(cfg.DataDir, "devices.yaml"))
 	if err != nil {
 		slog.Error("open device store", "err", err)

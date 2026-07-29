@@ -45,9 +45,11 @@ Designed to be handed to a friend: one shared stack + a per-host overlay they pi
 
 ```bash
 cp .env.example .env          # then edit: camera creds, TZ, STORAGE_PATH
-# Edit frigate/config.yml: set your real camera URLs (two worked examples are there)
+# Edit frigate/config.yml: set your real camera URLs, then flip that camera's
+#   `enabled:` to true (the two worked examples ship disabled on purpose)
 # Paste your host preset into the HOST-SPECIFIC block of frigate/config.yml:
 #   frigate/host-presets/nvidia.yml   (your Unraid GTX 1060)
+mkdir -p dashboard/data && sudo chown 65532:65532 dashboard/data   # dashboard state
 
 # Start with the matching overlay (pick ONE):
 docker compose -f docker-compose.yml -f compose.nvidia.yml   up -d   # Unraid (GTX 1060)
@@ -55,7 +57,7 @@ docker compose -f docker-compose.yml -f compose.intel.yml    up -d   # Intel iGP
 docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d   # AMD GPU
 docker compose -f docker-compose.yml -f compose.cpu.yml      up -d   # safe CPU-only
 docker compose -f docker-compose.yml -f compose.pi.yml       up -d   # Raspberry Pi
-docker compose -f docker-compose.yml -f compose.windows.yml  up -d   # Windows/Docker Desktop
+docker compose -f docker-compose.yml -f compose.bridge.yml   up -d   # Windows, or a host with a port conflict
 # A Coral EdgeTPU stacks on any host for detection (host GPU still decodes):
 docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
 ```
@@ -169,12 +171,29 @@ real public URL.
 
 ## Troubleshooting / known gotchas
 
+- **Frigate crash-loops with `[Errno 98] ... bind on ('127.0.0.1', 5001)`** — that's
+  Frigate's *internal* API port, and nothing you configured. On host networking the
+  container shares the host's loopback, so a port busy on the host is busy for
+  Frigate. Find the other listener with `ss -lntp | grep :5001` (on NAS platforms
+  it's often a second Frigate from the app catalog), then either stop it or switch
+  to `compose.bridge.yml`. The same applies to 5000, 1984, 8554 and 8555.
+- **`Unable to read frames from ffmpeg process` on a fresh install** — the two demo
+  cameras in `frigate/config.yml` ship **disabled** with placeholder URLs. If you
+  enabled one before pointing its `go2rtc:` stream at a real camera, this is the log
+  you get every few seconds. Fix the URL, or set `enabled: false` again.
 - **WebRTC quietly becomes MSE (higher latency)** — Docker hides `172.16/12`
   candidates. On host networking (Unraid/Pi) it's automatic; on **Windows/bridge**
   set `FRIGATE_HOST_LAN_IP` in `.env` and uncomment the `go2rtc: webrtc: candidates:`
   block in `config.yml`. Always verify the transport on `:1984`.
 - **`address already in use` on 8555** — only **one** go2rtc may own it. Don't run a
   separate go2rtc or an HA go2rtc add-on on the same host as Frigate.
+- **Dashboard says "no config file" / `dashboard/config.yaml` is a folder** — older
+  versions bind-mounted config.yaml as a single file, and Docker creates a
+  *directory* when that file doesn't exist on the host. The dashboard no longer
+  mounts it: config lives in the `dashboard/data/` directory mount, and a commented
+  `dashboard/data/config.yaml` is written on first run. Delete the stray folder
+  (`rm -rf dashboard/config.yaml`) and drop the old mount line if you still have it.
+  Nothing else is needed — printers and cameras can be added from the UI.
 - **Black tiles** — an H.265 / "smart" codec stream. Point the live view at the plain
   H.264 substream.
 - **Detector won't start / wrong host** — the detector + `ffmpeg.hwaccel_args` are
@@ -194,11 +213,13 @@ real public URL.
 
 ```
 docker-compose.yml        base: frigate + mosquitto
-compose.<host>.yml        host overlay: nvidia / intel / amd-rocm / cpu / pi / windows
+compose.<host>.yml        host overlay: nvidia / intel / amd-rocm / cpu / pi
+compose.bridge.yml        published ports instead of host networking (Windows, port conflicts)
 compose.obico.yml         optional print-failure detection (deferred)
 .env.example              copy to .env: camera creds, TZ, storage, image tags
 frigate/config.yml        cameras, go2rtc streams, record/detect, mqtt
 frigate/host-presets/     detector + hwaccel block to paste per host
+dashboard/data/           dashboard state: config.yaml, devices.yaml, Frigate backups
 mosquitto/config/         broker config
 Caddyfile                 optional public-exposure proxy
 ```

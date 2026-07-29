@@ -1,0 +1,57 @@
+# -----------------------------------------------------------------------------
+# Bridge-networking overlay — published ports instead of the host's network stack.
+#
+# Use it for either of these:
+#
+#   1) Windows / Docker Desktop (WSL2), Frigate's least-supported target. WSL2 NAT
+#      hides the host IP, so host networking exposes no reachable WebRTC candidate.
+#      Prefer a Pi or mini-PC as a primary host; use this only if you must.
+#
+#   2) A host where something already owns a port Frigate needs. With host
+#      networking Frigate shares the host's loopback, so a port that is busy on the
+#      host is busy for Frigate — including the ones you never configured. Its
+#      internal API binds 127.0.0.1:5001, and a collision there crash-loops the
+#      container with:
+#        [Errno 98] error while attempting to bind on address ('127.0.0.1', 5001)
+#      Seen on NAS platforms (TrueNAS, etc.) that run their own services or a
+#      second Frigate from an app catalog. Find the other listener first —
+#      `ss -lntp | grep :5001` — since bridge networking hides the conflict rather
+#      than resolving it, and you may prefer to stop the other service.
+#
+# Cost of bridge networking: no ONVIF camera autodiscovery, and WebRTC needs the
+# explicit candidate below or it silently falls back to MSE (~1s instead of ~0.5s).
+#
+# On Windows you MUST ALSO:
+#   1) In .env set HOST_LAN_IP to the Windows machine's LAN IP.
+#   2) In frigate/config.yml uncomment the `go2rtc: webrtc: candidates:` block.
+#   3) In frigate/config.yml set mqtt host to `host.docker.internal`.
+#
+# Apply:  docker compose -f docker-compose.yml -f compose.bridge.yml up -d
+# Then:   paste frigate/host-presets/cpu.yml (or nvidia if a GPU is exposed) into config.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    network_mode: "bridge"   # override the base's host networking
+    ports:
+      - "5000:5000"          # Frigate UI
+      - "8971:8971"          # Frigate authenticated UI
+      - "1984:1984"          # go2rtc UI
+      - "8554:8554"          # RTSP restream
+      - "8555:8555/tcp"      # WebRTC
+      - "8555:8555/udp"      # WebRTC
+
+  # Dashboard on bridge networking with a published port. You MUST also edit
+  # dashboard/data/config.yaml to reach the other services by their compose service
+  # names instead of 127.0.0.1, e.g.:
+  #   frigate.base_url: http://frigate:5000   mqtt_addr: tcp://mqtt:1883
+  #   go2rtc_url: http://frigate:1984         docker.host: tcp://dockerproxy:2375
+  #   ntfy.base_url: http://ntfy:8092
+  dashboard:
+    network_mode: "bridge"
+    ports:
+      - "8088:8088"
+  ntfy:
+    network_mode: "bridge"
+    ports:
+      - "8092:8092"

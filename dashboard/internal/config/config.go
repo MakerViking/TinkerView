@@ -1,12 +1,28 @@
 package config
 
 import (
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
+
+// defaultDataDir is the writable directory the dashboard owns, mounted rw in
+// compose. The config file lives here too (see Resolve).
+const defaultDataDir = "/data"
+
+// legacyConfigPath is where installs before the move mounted config.yaml, as a
+// single-file bind mount. Still read so those stacks keep working untouched.
+const legacyConfigPath = "/config.yaml"
+
+// templateYAML is an entirely commented-out config, written to the primary path
+// on first run so the file is discoverable without a trip to GitHub.
+//
+//go:embed template.yaml
+var templateYAML []byte
 
 // Config is the whole dashboard configuration. Loaded from YAML, with a few env
 // overrides for the secrets/paths that vary per host. Restart to apply.
@@ -20,9 +36,9 @@ type Config struct {
 	Ntfy       Ntfy        `yaml:"ntfy"`
 	Printers   []Printer   `yaml:"printers"`
 	QuickLinks []QuickLink `yaml:"quick_links"`
-	// DataDir is a writable directory the dashboard owns (separate from the
-	// read-only config.yaml mount): it holds UI-managed devices (devices.yaml)
-	// and Frigate-config backups. Defaults to /data (mounted rw in compose).
+	// DataDir is a writable directory the dashboard owns: it holds UI-managed
+	// devices (devices.yaml), Frigate-config backups, and — since the move off a
+	// single-file bind mount — config.yaml itself. Defaults to /data (mounted rw).
 	DataDir string `yaml:"data_dir"`
 	// HardwareTranscode, when true, appends go2rtc's #hardware hint to transcoded
 	// (MJPEG/raw) camera sources added from the UI so the host GPU (e.g. NVENC) is
@@ -86,13 +102,65 @@ type QuickLink struct {
 	URL  string `yaml:"url"`
 }
 
+// candidatePaths lists the config locations to try, most-preferred first.
+func candidatePaths() []string {
+	dir := os.Getenv("DASHBOARD_DATA_DIR")
+	if dir == "" {
+		dir = defaultDataDir
+	}
+	return []string{filepath.Join(dir, "config.yaml"), legacyConfigPath}
+}
+
+// Resolve picks the config file to load. An explicit path (the -config flag) or
+// DASHBOARD_CONFIG wins outright; otherwise the first candidate that is a readable
+// regular FILE is used, and if there is none the primary path is returned so logs
+// and SeedTemplate name the place to create one.
+//
+// The primary location lives inside the data DIRECTORY mount on purpose. Bind-
+// mounting a single file that does not exist on the host makes Docker create a
+// directory in its place, which was the most common first-run failure: the
+// dashboard then started with no config and the path could not be fixed by
+// copying a file over it. Only regular files are accepted here, so a leftover
+// directory at either candidate is skipped rather than loaded.
+func Resolve(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if v := os.Getenv("DASHBOARD_CONFIG"); v != "" {
+		return v
+	}
+	paths := candidatePaths()
+	for _, p := range paths {
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return p
+		}
+	}
+	return paths[0]
+}
+
+// SeedTemplate writes an annotated, fully commented-out config to path when
+// nothing exists there, so a fresh install has an editable file at a known
+// location. Best-effort: a read-only mount or an unwritable data dir is not an
+// error — the dashboard runs on defaults with no config file at all, and devices
+// can be added from the UI.
+func SeedTemplate(path string) {
+	if _, err := os.Stat(path); err == nil || !os.IsNotExist(err) {
+		return // exists already (file OR leftover directory) — never overwrite
+	}
+	if err := os.WriteFile(path, templateYAML, 0o644); err != nil {
+		slog.Debug("could not write config template", "path", path, "err", err)
+		return
+	}
+	slog.Info("wrote a commented config template", "path", path)
+}
+
 // Load reads YAML (if path is non-empty and exists) over sensible defaults, then
 // applies env overrides.
 func Load(path string) (*Config, error) {
 	c := &Config{
 		Listen:    ":8088",
 		Log:       Log{Level: "info"},
-		DataDir:   "/data",
+		DataDir:   defaultDataDir,
 		Go2RTCURL: "http://127.0.0.1:1984",
 		Frigate: Frigate{
 			BaseURL:     "http://127.0.0.1:5000",

@@ -12,7 +12,7 @@
 #   docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d # AMD GPU box
 #   docker compose -f docker-compose.yml -f compose.cpu.yml    up -d   # safe CPU-only fallback
 #   docker compose -f docker-compose.yml -f compose.pi.yml     up -d   # Raspberry Pi (arm64)
-#   docker compose -f docker-compose.yml -f compose.windows.yml up -d  # Windows / Docker Desktop
+#   docker compose -f docker-compose.yml -f compose.bridge.yml up -d   # Windows, or a host port conflict
 # A Coral EdgeTPU (USB/PCIe) can be STACKED on any host for detection while that
 # host's GPU still decodes, e.g.:
 #   docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
@@ -31,7 +31,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     # Host networking is required for low-latency WebRTC (port 8555 TCP+UDP) and
-    # for ONVIF camera autodiscovery. Overridden by compose.windows.yml.
+    # for ONVIF camera autodiscovery. It also means Frigate shares the host's
+    # loopback: a port already taken on the host (including its internal API on
+    # 127.0.0.1:5001) crash-loops the container. Overridden by compose.bridge.yml.
     network_mode: host
     # Pass FRIGATE_* secrets (RTSP creds, etc.) into the container so Frigate can
     # substitute them in config.yml via the {FRIGATE_RTSP_PASSWORD} syntax.
@@ -64,8 +66,9 @@ services:
 
   # --- Control dashboard (single Go binary serving the React SPA) -------------
   # One pane for cameras + printers + container health + alerts. Reached over the
-  # tailnet at http://<host>:8088. Copy dashboard/config.example.yaml ->
-  # dashboard/config.yaml and fill in your printers before starting.
+  # tailnet at http://<host>:8088. No config file is required to start: printers
+  # and cameras can be added from the UI. On first run the dashboard writes a
+  # commented dashboard/data/config.yaml you can edit (see config.example.yaml).
   dashboard:
     container_name: dashboard
     image: ${DASHBOARD_IMAGE:-tinkerview:latest}
@@ -79,12 +82,22 @@ services:
       NTFY_BASE_URL: ${NTFY_BASE_URL:-http://127.0.0.1:8092}
       NTFY_TOKEN: ${NTFY_TOKEN:-}
     volumes:
-      - ./dashboard/config.yaml:/config.yaml:ro
-      # Writable store for UI-added printers/cameras (devices.yaml) + Frigate
-      # config backups. config.yaml stays read-only; this is the only writable
-      # mount. The container runs as distroless :nonroot (uid 65532), so the host
-      # dir must be writable by that uid — create it before first start:
+      # The dashboard's ONLY writable mount, and the single source of its state:
+      # config.yaml, UI-added printers/cameras (devices.yaml), Frigate backups.
+      #
+      # Deliberately a DIRECTORY, never a single file. Docker creates a directory
+      # in place of a bind-mounted file that doesn't exist on the host, which used
+      # to leave new installs with an unusable dashboard/config.yaml/ folder.
+      #
+      # The container runs as distroless :nonroot (uid 65532), so the host dir must
+      # be writable by that uid — create it before first start:
       #   mkdir -p ./dashboard/data && chown 65532:65532 ./dashboard/data
+      #
+      # UPGRADING from a version that mounted ./dashboard/config.yaml:/config.yaml?
+      # Move the file into this directory and it keeps working:
+      #   mv ./dashboard/config.yaml ./dashboard/data/config.yaml
+      # (Keeping the old mount line also still works — the legacy path is read as a
+      # fallback — but new installs should not add it.)
       - ./dashboard/data:/data
       - ${STORAGE_PATH:-./storage/frigate}:/media/frigate:ro # disk usage of the recordings volume
     depends_on: [frigate, mqtt, dockerproxy]

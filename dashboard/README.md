@@ -11,15 +11,17 @@ Real-time over one WebSocket. Cross-compiles to arm64 for a Pi.
 ## Quick start (with the rest of the stack)
 
 ```sh
-cp dashboard/config.example.yaml dashboard/config.yaml   # edit your printers
 docker compose -f docker-compose.yml -f compose.nvidia.yml up -d --build dashboard
 ```
 
-Open `http://<host>:8088` over the tailnet. With no printers configured (or
-`DASHBOARD_DEMO=1`) it shows a **demo printer + camera tiles** so you can verify
-the UI before wiring real devices. Camera tiles stream live from go2rtc via the
-proxy (MJPEG by default; vendor go2rtc's player for WebRTC — see
-`web/public/README.md`).
+Open `http://<host>:8088` over the tailnet. **No config file is required** — add
+printers and cameras from the UI (they persist to `dashboard/data/devices.yaml`).
+On first run the dashboard writes a commented `dashboard/data/config.yaml` for the
+settings the UI doesn't cover; `config.example.yaml` here is the fully worked
+version to copy from. With no printers configured (or `DASHBOARD_DEMO=1`) it shows
+a **demo printer + camera tiles** so you can verify the UI before wiring real
+devices. Camera tiles stream live from go2rtc via the proxy (MJPEG by default;
+vendor go2rtc's player for WebRTC — see `web/public/README.md`).
 
 ## Local development
 
@@ -67,8 +69,20 @@ adapters ──Publish──▶ bus ──▶ hub ──WS──▶ React SPA
 
 ## Configuration
 
-`config.yaml` (gitignored; copy from `config.example.yaml`). Secrets can also come
-from env: `DASHBOARD_TOKEN`, `DOCKER_HOST`, `NTFY_BASE_URL`, `NTFY_TOKEN`. Restart to apply.
+Optional. The binary resolves its config in this order:
+
+1. `-config <path>` or `DASHBOARD_CONFIG`
+2. `<data_dir>/config.yaml` — i.e. `/data/config.yaml` in the container,
+   `dashboard/data/config.yaml` on the host (written, commented, on first run)
+3. `/config.yaml` — the legacy single-file mount, still read so older stacks keep
+   working. New installs should not add it: Docker turns a bind-mounted file that
+   doesn't exist on the host into a *directory*, which is why config moved into the
+   data directory. A directory at either path is skipped, not loaded.
+
+Nothing here is required to boot — missing, unreadable, or empty all fall back to
+defaults, and devices can be added from the UI. A *malformed* file fails loudly.
+Copy `config.example.yaml` for a fully worked reference. Secrets can also come from
+env: `DASHBOARD_TOKEN`, `DOCKER_HOST`, `NTFY_BASE_URL`, `NTFY_TOKEN`. Restart to apply.
 
 ## Security
 
