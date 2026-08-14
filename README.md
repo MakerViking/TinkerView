@@ -187,6 +187,18 @@ real public URL.
   block in `config.yml`. Always verify the transport on `:1984`.
 - **`address already in use` on 8555** — only **one** go2rtc may own it. Don't run a
   separate go2rtc or an HA go2rtc add-on on the same host as Frigate.
+- **HQ tiles die with `OpenEncodeSessionEx failed: incompatible client key (21)` /
+  `No capable devices found`, and every camera reconnects every few seconds** — the
+  GPU's NVENC session cap is saturated by leaked `<cam>_hq` encoders. This happens
+  when the `_hq` recipe writes to a **stdout MPEG-TS pipe**: orphaned ffmpeg
+  processes block on the half-closed pipe, ignore SIGTERM, and hold their encoder
+  session forever, while the malformed stream they produce panics go2rtc — which
+  restarts *all* cameras and orphans yet more encoders. Fix the recipe to push over
+  RTSP (`-an -rtsp_transport tcp -f rtsp {{output}}`, doubled braces, value quoted);
+  see the annotated recipe in `frigate/config.yml`. To recover a saturated GPU right
+  now: `pkill -f h264_nvenc` (encoders auto-respawn), adding `-KILL` for wedged
+  leftovers. Check the count with `pgrep -cf h264_nvenc` — it should be one per open
+  HQ tile and zero when none are open.
 - **Dashboard says "no config file" / `dashboard/config.yaml` is a folder** — older
   versions bind-mounted config.yaml as a single file, and Docker creates a
   *directory* when that file doesn't exist on the host. The dashboard no longer

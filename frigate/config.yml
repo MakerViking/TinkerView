@@ -57,25 +57,40 @@ go2rtc:
     # upscale, encoded on the GPU's NVENC). On-demand: only transcodes while viewed.
     # Reads from the go2rtc FAN-OUT (not the camera), preserving the single upstream.
     # REQUIRES the env var GO2RTC_ALLOW_ARBITRARY_EXEC=true (exec sources are off by
-    # default for security). Output to a stdout MPEG-TS pipe (-f mpegts -) — do NOT
-    # use "-f rtsp {output}", Frigate's {}-substitution breaks it. Use the right
-    # ffmpeg path for your Frigate build (e.g. /usr/lib/ffmpeg/7.0/bin/ffmpeg).
+    # default for security). Use the right ffmpeg path for your Frigate build
+    # (e.g. /usr/lib/ffmpeg/7.0/bin/ffmpeg).
+    #
+    # PUSH THE OUTPUT OVER RTSP ("-f rtsp {{output}}"), NOT to a stdout MPEG-TS pipe.
+    # Double the braces AND quote the whole value: Frigate runs every stream string
+    # through Python .format(), so "{{output}}" reaches go2rtc as the "{output}"
+    # placeholder it expects (a bare "{output}" raises KeyError; a bare "{{" is YAML
+    # flow-mapping syntax). A stdout pipe fails in two ways that cost us an outage:
+    #   1. It feeds go2rtc's MPEG-TS -> AVCC path, which PANICS on a malformed NAL
+    #      ("slice bounds out of range" in h264.EmitNalus). go2rtc is ONE shared
+    #      process, so that restarts EVERY camera, not just this one.
+    #   2. A pipe orphan cannot die. If go2rtc restarts this exec producer without
+    #      reaping the old ffmpeg, the orphan blocks writing to a half-closed pipe,
+    #      IGNORES SIGTERM, and holds its NVENC session forever. An RTSP push simply
+    #      fails when go2rtc goes away, so the encoder exits on its own.
+    # Consumer GPUs cap simultaneous NVENC sessions (e.g. GTX 1060 = 8); accumulated
+    # orphans saturate the cap and NEW _hq encoders then fail with
+    # "OpenEncodeSessionEx failed: incompatible client key (21)" / "No capable
+    # devices found". Recover a saturated GPU now: pkill -f h264_nvenc (auto-
+    # respawns); add -KILL for wedged leftovers of an older pipe-based recipe.
+    #
+    # "-an" keeps HQ video-only (matches the base tile, and avoids RTSP audio
+    # negotiation). The trailing "-rtsp_transport tcp" applies to the OUTPUT; the one
+    # before -i applies to an RTSP INPUT (omit it for an http/MJPEG input).
+    # Keep a stall timeout before -i so a dead SOURCE self-terminates: "-timeout
+    # 15000000" (microseconds) works for both http and rtsp inputs on Frigate's
+    # ffmpeg. It does NOT prevent the orphan above — that is an output-side failure,
+    # and the RTSP push is what fixes it. NOTE: "-rw_timeout" is rejected by the rtsp
+    # demuxer in ffmpeg 5.x ("Option rw_timeout not found"), so prefer "-timeout".
     # Tunables: hqdn3d=denoise, unsharp=sharpen; for a LOW-RES cam prepend an
     # upscale, e.g. scale=1920:1080:flags=lanczos. (minterpolate/fps is too slow at
     # 1080p — only worth it for genuinely low-fps/low-res sources.)
-    # IMPORTANT: keep a socket-IO stall timeout before -i. If go2rtc restarts this
-    # exec producer on a source hiccup without reaping the old ffmpeg, the orphan
-    # keeps holding an NVENC session forever. Consumer GPUs cap simultaneous NVENC
-    # sessions (e.g. GTX 1060 = 8); accumulated orphans saturate the cap and NEW _hq
-    # encoders then fail with "OpenEncodeSessionEx failed: incompatible client key
-    # (21)" / "No capable devices found". The timeout makes a stalled orphan self-
-    # terminate (a healthy stream reads frames well under 15s, so it never trips).
-    # Use "-timeout 15000000" (microseconds) — it works for both http and rtsp inputs
-    # on Frigate's ffmpeg. NOTE: "-rw_timeout" is rejected by the rtsp demuxer in
-    # ffmpeg 5.x ("Option rw_timeout not found"), so prefer "-timeout" for portability.
-    # Recover a saturated GPU now: pkill -f h264_nvenc (auto-respawns).
     # printer1_hq:
-    #   - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel error -timeout 15000000 -i http://127.0.0.1:1984/api/stream.mjpeg?src=printer1 -vf hqdn3d=2:1:2:2,unsharp=5:5:0.8:5:5:0.0 -c:v h264_nvenc -preset p4 -b:v 6M -g 60 -bf 0 -f mpegts -"
+    #   - "exec:/usr/lib/ffmpeg/7.0/bin/ffmpeg -hide_banner -loglevel error -timeout 15000000 -i http://127.0.0.1:1984/api/stream.mjpeg?src=printer1 -vf hqdn3d=2:1:2:2,unsharp=5:5:0.8:5:5:0.0 -c:v h264_nvenc -preset p4 -b:v 6M -g 60 -bf 0 -an -rtsp_transport tcp -f rtsp {{output}}"
 
   # --- WebRTC: only needed on BRIDGE networking (Windows). On host networking
   # (Unraid/Pi) leave commented; go2rtc finds the candidate automatically.

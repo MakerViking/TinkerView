@@ -11,12 +11,19 @@ export function VideoStream({
   src,
   mode = 'webrtc,mse,mjpeg',
   className,
+  onError,
 }: {
   src: string
   mode?: string
   className?: string
+  // Called with go2rtc's error text when the stream fails to start (e.g. a GPU
+  // transcode whose encoder can't open). Fires on every reconnect attempt.
+  onError?: (message: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Kept in a ref so a caller's inline callback doesn't re-create the player.
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
   const [hasComponent, setHasComponent] = useState(
     () => typeof window !== 'undefined' && !!customElements.get('video-stream'),
   )
@@ -44,6 +51,22 @@ export function VideoStream({
     el.background = true
     el.style.width = '100%'
     el.style.height = '100%'
+    // Surface go2rtc's stream errors to React. The player broadcasts them as
+    // {type:'error'} over its WebSocket and otherwise only paints them into its own
+    // status div, invisible to us. We register an extra handler in its `onmessage`
+    // map — the same seam the vendored video-stream.js uses for its own handler.
+    // It MUST be (re-)registered inside onopen: video-rtc.js resets `onmessage = {}`
+    // on every (re)connect, so a one-shot registration would be dropped on reconnect.
+    // Coupled to the vendored player internals — re-check when re-pinning it
+    // (see public/README.md).
+    const chainedOnOpen = el.onopen.bind(el)
+    el.onopen = () => {
+      const result = chainedOnOpen()
+      el.onmessage['tinkerview'] = (msg: { type?: string; value?: unknown }) => {
+        if (msg?.type === 'error') onErrorRef.current?.(String(msg.value ?? ''))
+      }
+      return result
+    }
     el.src = `${proto}://${location.host}/go2rtc/api/ws?src=${encodeURIComponent(src)}`
     ref.current.appendChild(el)
     return () => {

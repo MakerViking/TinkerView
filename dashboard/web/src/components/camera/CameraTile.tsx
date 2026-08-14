@@ -26,7 +26,20 @@ export function CameraTile({ name }: { name: string }) {
   const tileRef = useRef<HTMLDivElement>(null)
   // HQ preference is remembered per camera across reloads (localStorage).
   const [hq, setHq] = usePersistentBoolean(`hq:${name}`, false)
-  const streamName = hq && cam?.hasHq ? `${name}_hq` : name
+  const usingHq = hq && !!cam?.hasHq
+  const streamName = usingHq ? `${name}_hq` : name
+  const [hqFailed, setHqFailed] = useState(false)
+
+  // The GPU-enhanced variant is the fragile one: its encoder can refuse to start
+  // (e.g. the GPU's NVENC session cap is saturated), and the player would otherwise
+  // sit on a dead stream retrying every 15s while showing raw ffmpeg text. Drop back
+  // to the standard stream, which always works, and say so. Base-stream errors are
+  // left alone so a genuinely offline camera still reports itself.
+  const handleStreamError = () => {
+    if (!usingHq) return
+    setHq(false)
+    setHqFailed(true)
+  }
 
   const toggle = (feature: 'detect' | 'recordings', value: boolean) =>
     send({ type: 'camera.toggle', data: { camera: name, feature, value } })
@@ -103,7 +116,21 @@ export function CameraTile({ name }: { name: string }) {
       ref={tileRef}
       className="group relative aspect-video overflow-hidden rounded-xl border border-ink-800 bg-black shadow-elev transition-colors hover:border-ink-700"
     >
-      <VideoStream src={streamName} className="h-full w-full bg-black object-contain" />
+      <VideoStream
+        src={streamName}
+        className="h-full w-full bg-black object-contain"
+        onError={handleStreamError}
+      />
+
+      {hqFailed && (
+        <div
+          role="status"
+          className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-3 text-center font-display text-[11px] font-semibold text-amber-200 drop-shadow"
+        >
+          HQ unavailable — showing the standard stream
+        </div>
+      )}
+
 
       {/* Top chrome: identity + stream actions. */}
       <div className="absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 pb-5">
@@ -122,7 +149,10 @@ export function CameraTile({ name }: { name: string }) {
         <div className="ml-auto flex items-center gap-1.5">
           {cam?.hasHq && (
             <button
-              onClick={() => setHq((v) => !v)}
+              onClick={() => {
+                setHqFailed(false) // let the user retry after a transient GPU failure
+                setHq((v) => !v)
+              }}
               title="Toggle the GPU-enhanced stream (denoise / sharpen / upscale)"
               aria-pressed={hq}
               className={cn(
