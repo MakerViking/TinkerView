@@ -2,6 +2,10 @@
   <img src="assets/tinkerview-logo-banner.svg" alt="TinkerView — Cameras + 3D printers" width="420">
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-4a5568?style=for-the-badge" alt="AGPL-3.0">
+</p>
+
 # TinkerView · by TinkerAtlas
 
 > A self-hosted hub that puts your **cameras (NVR)** and your **3D printers** in one
@@ -223,3 +227,21 @@ dashboard/data/           dashboard state: config.yaml, devices.yaml, Frigate ba
 mosquitto/config/         broker config
 Caddyfile                 optional public-exposure proxy
 ```
+
+---
+
+## License
+
+TinkerView is licensed under the GNU Affero General Public License v3.0
+(`AGPL-3.0-only`), see [LICENSE](LICENSE). AGPL's network copyleft means any fork, or
+any modified version offered over a network, has to publish its source under the same
+terms.
+
+Contributions are welcome under [CONTRIBUTING.md](CONTRIBUTING.md), which includes a
+short contributor agreement so the project can stay open under the AGPL while the
+maintainer can also offer commercial terms to those who need them. Third-party
+components and their licenses are listed in [NOTICE.md](NOTICE.md).
+
+Running TinkerView on your own homelab is **not** distribution — the AGPL's
+source-offer obligation kicks in only if you hand the software to someone else or
+offer a modified version to others over a network.
