@@ -14,8 +14,15 @@ const ACTIONS: { value: NotifyRule['action']; label: string }[] = [
 ]
 type MatchMode = 'any' | 'known' | 'unknown' | 'name'
 
+// A whitespace-only match (NAME_BLANK) is the "Specific name…" mode with no name
+// typed yet: the backend trims it to "any", but here it keeps the name field visible
+// (an empty string would read back as "any" and snap the select back).
+const NAME_BLANK = ' '
+
 function matchMode(r: NotifyRule): MatchMode {
-  const m = (r.match ?? '').trim().toLowerCase()
+  const raw = r.match ?? ''
+  if (raw !== '' && raw.trim() === '') return 'name'
+  const m = raw.trim().toLowerCase()
   if (m === '' || m === 'any') return 'any'
   if (m === 'known' || m === 'unknown') return m
   return 'name'
@@ -55,11 +62,19 @@ export function RulesPanel() {
   const save = async () => {
     setError(null)
     setStatus(null)
+    // "Specific name…" with no name typed would be saved as "any" (notify on everything).
+    const blank = (rules ?? []).findIndex((x) => matchMode(x) === 'name' && (x.match ?? '').trim() === '')
+    if (blank >= 0) {
+      setError(
+        `Rule ${blank + 1} is set to "Specific name…" but no name is entered. Enter a name or choose another Recognized option.`,
+      )
+      return
+    }
     try {
       const r = await fetch('/api/notify-rules', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rules ?? []),
+        body: JSON.stringify((rules ?? []).map((r) => ({ ...r, match: r.match?.trim() }))),
       })
       if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`)
       setStatus('Rules saved.')
@@ -211,9 +226,9 @@ function RuleCard({
             onChange={(e) => {
               const v = e.target.value as MatchMode
               // any → clear; known/unknown → that keyword; name → keep any existing
-              // free-text name, else blank for the user to fill in.
+              // free-text name, else a blank placeholder for the user to fill in.
               if (v === 'any') onPatch({ match: '' })
-              else if (v === 'name') onPatch({ match: mode === 'name' ? r.match : '' })
+              else if (v === 'name') onPatch({ match: mode === 'name' ? r.match : NAME_BLANK })
               else onPatch({ match: v })
             }}
           >
@@ -227,8 +242,8 @@ function RuleCard({
               className={inputCls}
               placeholder="exact name / plate owner"
               aria-label="Recognized name"
-              value={r.match ?? ''}
-              onChange={(e) => onPatch({ match: e.target.value })}
+              value={(r.match ?? '').trim() === '' ? '' : r.match}
+              onChange={(e) => onPatch({ match: e.target.value === '' ? NAME_BLANK : e.target.value })}
             />
           )}
         </Labeled>

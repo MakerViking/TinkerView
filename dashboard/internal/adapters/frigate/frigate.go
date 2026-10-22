@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/MakerViking/TinkerView/internal/adapter"
 	"github.com/MakerViking/TinkerView/internal/bus"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type Adapter struct {

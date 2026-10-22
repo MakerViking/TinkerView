@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/MakerViking/TinkerView/internal/adapter"
@@ -26,7 +27,13 @@ type Source struct {
 	client    *http.Client
 	watch     map[string]bool // allow-list of container names; empty = all
 	diskPaths []string
+
+	listFailing bool // last container list failed (log only on transitions); Run goroutine only
 }
+
+// statsWorkers bounds concurrent /stats requests: each takes ~1s (Docker samples
+// CPU), so a serial loop over many containers overran the 5s poll interval.
+const statsWorkers = 4
 
 // New builds the Docker source. host is a Docker endpoint: tcp://host:2375,
 // http://host:2375, or unix:///var/run/docker.sock.
@@ -121,11 +128,25 @@ type dockerStats struct {
 func (s *Source) pollContainers(ctx context.Context) {
 	var list []apiContainer
 	if err := s.getJSON(ctx, "/containers/json?all=true", &list); err != nil {
-		slog.Warn("docker: container list failed", "err", err)
+		// Log only the transition into failure; a down proxy would otherwise warn every tick.
+		if !s.listFailing {
+			slog.Warn("docker: container list failed", "err", err)
+			s.listFailing = true
+		} else {
+			slog.Debug("docker: container list failed", "err", err)
+		}
 		return
+	}
+	if s.listFailing {
+		slog.Info("docker: container list recovered")
+		s.listFailing = false
 	}
 	now := time.Now().Unix()
 	out := make([]adapter.Container, 0, len(list))
+	var (
+		wg  sync.WaitGroup
+		sem = make(chan struct{}, statsWorkers)
+	)
 	for _, c := range list {
 		name := strings.TrimPrefix(firstName(c.Names), "/")
 		if len(s.watch) > 0 && !s.watch[name] {
@@ -136,10 +157,23 @@ func (s *Source) pollContainers(ctx context.Context) {
 			if c.Created > 0 {
 				row.UptimeSec = now - c.Created
 			}
-			s.addStats(ctx, c.ID, &row)
 		}
 		out = append(out, row)
 	}
+	// Stats are fetched concurrently (each writes only its own row in out).
+	for i := range out {
+		if out[i].State != "running" {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(row *adapter.Container) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			s.addStats(ctx, row.ID, row)
+		}(&out[i])
+	}
+	wg.Wait()
 	s.bus.Publish(bus.Event{Source: bus.SourceDocker, Kind: bus.KindContainers, Ts: time.Now(), Payload: out})
 }
 

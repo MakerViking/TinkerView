@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -20,7 +22,11 @@ import (
 //     carries an Origin header, even when it equals Frigate's own origin; a request
 //     with no Origin is treated as a trusted non-browser caller and allowed. This
 //     is what lets the Recognition tab's face/plate writes succeed through the proxy.
-func ReverseProxy(pathPrefix, target string, stripCrossOrigin bool) (http.Handler, error) {
+//
+// token is the dashboard's shared token ("" = none): when set, the token query
+// param, Authorization header and auth cookie are stripped before forwarding so
+// they never reach (or get logged by) the upstream.
+func ReverseProxy(pathPrefix, target string, stripCrossOrigin bool, token string) (http.Handler, error) {
 	u, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -29,6 +35,7 @@ func ReverseProxy(pathPrefix, target string, stripCrossOrigin bool) (http.Handle
 	orig := rp.Director
 	rp.Director = func(r *http.Request) {
 		orig(r)
+		stripCredentials(r, token)
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, pathPrefix)
 		if !strings.HasPrefix(r.URL.Path, "/") {
 			r.URL.Path = "/" + r.URL.Path
@@ -45,10 +52,23 @@ func ReverseProxy(pathPrefix, target string, stripCrossOrigin bool) (http.Handle
 			r.Header.Set("Origin", u.Scheme+"://"+u.Host)
 		}
 	}
-	// Log upstream failures (e.g. go2rtc/Frigate down) in the dashboard's own log.
-	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		slog.Warn("upstream proxy error", "target", target, "path", r.URL.Path, "err", err.Error())
-		w.WriteHeader(http.StatusBadGateway)
-	}
+	rp.ErrorHandler = proxyErrorHandler(target)
 	return rp, nil
+}
+
+// proxyErrorHandler logs upstream failures (e.g. go2rtc/Frigate down) in the
+// dashboard's own log. A client that went away (tab closed/switched, stream
+// reconnect) is routine and only logged at debug, and a 502 is only written when
+// the response hasn't started yet.
+func proxyErrorHandler(target string) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+			slog.Debug("upstream proxy: client gone", "target", target, "path", r.URL.Path)
+			return
+		}
+		slog.Warn("upstream proxy error", "target", target, "path", r.URL.Path, "err", err.Error())
+		if !responseStarted(w) {
+			w.WriteHeader(http.StatusBadGateway)
+		}
+	}
 }

@@ -32,6 +32,7 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize }) {
   return (
     <button
+      type="button"
       {...props}
       className={cn(
         'inline-flex items-center justify-center whitespace-nowrap transition-colors select-none',

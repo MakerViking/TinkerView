@@ -48,7 +48,7 @@ export function withToken(url: string): string {
 }
 
 // installFetchAuth patches window.fetch once so same-origin /api/* requests carry
-// the bearer token. Centralised so individual call sites (and future ones) don't
+// the bearer token (and /frigate/, which the server gates the same way). Centralised so individual call sites (and future ones) don't
 // each have to remember it; a no-op when no token is configured.
 export function installFetchAuth(): void {
   if (!token) return
@@ -56,7 +56,7 @@ export function installFetchAuth(): void {
   window.fetch = (input, init) => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    if (url.startsWith('/api/')) {
+    if (url.startsWith('/api/') || url.startsWith('/frigate/')) {
       const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
       if (!headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
       return orig(input, { ...init, headers })

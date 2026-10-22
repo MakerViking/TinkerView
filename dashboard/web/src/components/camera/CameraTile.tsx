@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
 import { VideoStream } from '@/components/VideoStream'
 import { usePersistentBoolean } from '@/lib/persist'
 import { DeviceMenu, type MenuAction } from '@/components/devices/DeviceMenu'
-import { AddCameraModal } from '@/components/devices/AddCameraModal'
+import { EditCameraModal } from '@/components/devices/EditCameraModal'
 import { CameraSettingsModal } from '@/components/camera/CameraSettingsModal'
 import { ConfirmDialog, useConfirm } from '@/components/ConfirmDialog'
 import { Switch } from '@/components/ui'
@@ -15,7 +15,9 @@ import { cn, copyText } from '@/lib/utils'
 const pillCls =
   'rounded-md bg-white/10 px-1.5 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-ink-100 backdrop-blur-sm transition-colors hover:bg-white/20'
 
-export function CameraTile({ name }: { name: string }) {
+// memo: the wall re-renders on every camera.state delta; a tile only needs to
+// re-render when its own camera (selected below) or its name changes.
+export const CameraTile = memo(function CameraTile({ name }: { name: string }) {
   const cam = useLive((s) => s.cameras[name])
   const { send } = useWs()
   const [copied, setCopied] = useState<'' | 'rtsp' | 'http'>('')
@@ -38,11 +40,10 @@ export function CameraTile({ name }: { name: string }) {
     else void el.requestFullscreen?.()
   }
 
-  // Management actions are only offered for UI-added (managed) cameras; the
-  // pre-existing Frigate-config cameras stay read-only here.
-  const menuActions: MenuAction[] = []
+  // Edit… is offered for every camera (config-defined ones get a restricted form:
+  // source URL only). Recording/NVR/Delete stay limited to UI-added (managed) cameras.
+  const menuActions: MenuAction[] = [{ label: 'Edit…', onClick: () => setEditing(true) }]
   if (cam?.managed) {
-    menuActions.push({ label: 'Edit…', onClick: () => setEditing(true) })
     menuActions.push({ label: 'Recording & detection…', onClick: () => setSettings('full') })
   }
   // Image controls (rotate/flip) are available for every camera, including the
@@ -171,7 +172,7 @@ export function CameraTile({ name }: { name: string }) {
         </div>
       </div>
 
-      {editing && <AddCameraModal existingName={name} onClose={() => setEditing(false)} />}
+      {editing && <EditCameraModal name={name} onClose={() => setEditing(false)} />}
       {settings && (
         <CameraSettingsModal name={name} imageOnly={settings === 'image'} onClose={() => setSettings('')} />
       )}
@@ -205,7 +206,7 @@ export function CameraTile({ name }: { name: string }) {
       </div>
     </div>
   )
-}
+})
 
 function FeatureToggle({
   label,

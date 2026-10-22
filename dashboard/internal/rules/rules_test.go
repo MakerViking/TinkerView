@@ -69,13 +69,13 @@ func TestInWindow(t *testing.T) {
 		t        time.Time
 		want     bool
 	}{
-		{"", "", at(3, 0), true},                  // all-day
-		{"21:00", "06:00", at(23, 30), true},      // overnight, late
-		{"21:00", "06:00", at(5, 0), true},        // overnight, early
-		{"21:00", "06:00", at(12, 0), false},      // overnight, midday excluded
-		{"09:00", "17:00", at(12, 0), true},       // daytime inside
-		{"09:00", "17:00", at(8, 0), false},       // before
-		{"09:00", "17:00", at(17, 0), false},      // end exclusive
+		{"", "", at(3, 0), true},             // all-day
+		{"21:00", "06:00", at(23, 30), true}, // overnight, late
+		{"21:00", "06:00", at(5, 0), true},   // overnight, early
+		{"21:00", "06:00", at(12, 0), false}, // overnight, midday excluded
+		{"09:00", "17:00", at(12, 0), true},  // daytime inside
+		{"09:00", "17:00", at(8, 0), false},  // before
+		{"09:00", "17:00", at(17, 0), false}, // end exclusive
 	}
 	for _, c := range cases {
 		if got := inWindow(c.from, c.to, c.t); got != c.want {
@@ -137,5 +137,20 @@ func TestOpenPersistRoundTrip(t *testing.T) {
 	}
 	if got := s2.Get(); len(got) != 1 || got[0].Name != "only" {
 		t.Fatalf("round trip mismatch: %+v", got)
+	}
+}
+
+func TestOpenUnwritableDirKeepsDefaults(t *testing.T) {
+	// A directory that does not exist makes the seed write fail, like a read-only
+	// or wrong-uid data dir. Open must still succeed with the default rules.
+	s, err := Open(filepath.Join(t.TempDir(), "missing", "notify-rules.json"))
+	if err != nil {
+		t.Fatalf("Open on unwritable dir should not fail: %v", err)
+	}
+	if len(s.Get()) == 0 {
+		t.Fatal("expected in-memory default rules")
+	}
+	if err := s.Set(DefaultRules()); err == nil {
+		t.Fatal("Set should report the persist error")
 	}
 }

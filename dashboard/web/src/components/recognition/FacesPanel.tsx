@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { inputCls } from '@/components/devices/forms'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button, Card, EmptyState, Notice } from '@/components/ui'
+import { Button, Card, EmptyState, Notice, Skeleton } from '@/components/ui'
+import { withToken } from '@/lib/auth'
 import { IconScanFace, IconUpload, IconX } from '@/components/icons'
 
 // Faces are managed directly through Frigate's API via the dashboard's /frigate/
@@ -11,7 +12,7 @@ type FaceMap = Record<string, string[]>
 
 const FACES_API = '/frigate/api/faces'
 const faceImg = (name: string, file: string) =>
-  `/frigate/clips/faces/${encodeURIComponent(name)}/${encodeURIComponent(file)}`
+  withToken(`/frigate/clips/faces/${encodeURIComponent(name)}/${encodeURIComponent(file)}`)
 
 // toJpeg decodes an uploaded image with the browser (honoring EXIF orientation —
 // important so a sideways phone photo's face is upright) and re-encodes it as a
@@ -137,7 +138,21 @@ export function FacesPanel() {
 
       {error && <Notice tone="error">{error}</Notice>}
 
-      {names.length === 0 ? (
+      {faces === null ? (
+        // Not loaded yet (or the load failed): never claim nothing is enrolled.
+        error ? (
+          <div>
+            <Button size="xs" variant="outline" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]" aria-label="Loading faces">
+            <Skeleton className="h-40" />
+            <Skeleton className="h-40" />
+          </div>
+        )
+      ) : names.length === 0 ? (
         <EmptyState
           icon={<IconScanFace />}
           title="No faces enrolled yet"

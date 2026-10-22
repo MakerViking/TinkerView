@@ -34,6 +34,7 @@ type API struct {
 	notifier notify.Notifier
 	frig     FrigateConfigManager // may be nil
 	rules    *rules.Store         // may be nil
+	devs     *deviceBackend       // set by SetDevices; nil -> the edit/inspect endpoints degrade
 }
 
 func NewAPI(version string, h *hub.Hub, cmd hub.CommandHandler, notifier notify.Notifier, frig FrigateConfigManager, ruleStore *rules.Store) *API {
@@ -52,9 +53,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/containers/{id}/restart", a.restart)
 	mux.HandleFunc("POST /api/notify/test", a.notifyTest)
 	// Device CRUD mirror of the WS commands (scripting/debugging).
+	mux.HandleFunc("GET /api/printers/{id}", a.printerGet)
 	mux.HandleFunc("POST /api/printers", a.printerAdd)
 	mux.HandleFunc("PUT /api/printers/{id}", a.printerEdit)
 	mux.HandleFunc("DELETE /api/printers/{id}", a.printerDelete)
+	mux.HandleFunc("GET /api/cameras/{name}", a.cameraGet)
 	mux.HandleFunc("POST /api/cameras", a.cameraAdd)
 	mux.HandleFunc("PUT /api/cameras/{name}", a.cameraEdit)
 	mux.HandleFunc("DELETE /api/cameras/{name}", a.cameraDelete)
@@ -123,86 +126,6 @@ func (a *API) restart(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.cmd.ContainerRestart(r.Context(), r.PathValue("id")); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) printerAdd(w http.ResponseWriter, r *http.Request) {
-	var rec devices.PrinterRecord
-	if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
-		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := a.cmd.AddPrinter(rec); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) printerEdit(w http.ResponseWriter, r *http.Request) {
-	var rec devices.PrinterRecord
-	if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
-		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := a.cmd.EditPrinter(r.PathValue("id"), rec); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) printerDelete(w http.ResponseWriter, r *http.Request) {
-	if err := a.cmd.RemovePrinter(r.PathValue("id")); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) cameraAdd(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name     string `json:"name"`
-		SrcKind  string `json:"srcKind"`
-		SrcInput string `json:"srcInput"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := a.cmd.AddCamera(body.Name, body.SrcKind, body.SrcInput, body.Username, body.Password); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) cameraEdit(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		NewName     string `json:"newName"`
-		NewSrcKind  string `json:"newSrcKind"`
-		NewSrcInput string `json:"newSrcInput"`
-		Username    string `json:"username"`
-		Password    string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := a.cmd.EditCamera(r.PathValue("name"), body.NewName, body.NewSrcKind, body.NewSrcInput, body.Username, body.Password); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) cameraDelete(w http.ResponseWriter, r *http.Request) {
-	if err := a.cmd.RemoveCamera(r.PathValue("name")); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

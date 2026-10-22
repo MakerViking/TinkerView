@@ -103,6 +103,10 @@ type DetectionSettings struct {
 type CameraRecord struct {
 	Name string `yaml:"name" json:"name"`
 	Src  string `yaml:"src" json:"src"`
+	// SrcKind is the UI source kind Src was resolved from (rtsp|h264|mjpeg|
+	// mjpeg_raw|advanced). Records written before it existed leave it empty;
+	// InferSrcKind recovers it from the Src prefix.
+	SrcKind string `yaml:"src_kind,omitempty" json:"srcKind,omitempty"`
 	// Username/Password, when set, are injected into Src's stream URL by Source()
 	// so the credentials live in one place instead of being embedded in the URL.
 	// Stored in plaintext like printer API keys; Password is never sent to clients.
@@ -259,6 +263,8 @@ type Store struct {
 	path string
 	mu   sync.Mutex
 	data StoreData
+	// refHook, when set, is told which printers' camera reference changed.
+	refHook func(ids []string)
 }
 
 // Open loads the store from path. A missing file yields an empty store (the
@@ -328,58 +334,189 @@ func (s *Store) Camera(name string) (CameraRecord, bool) {
 	return CameraRecord{}, false
 }
 
+// mutateLocked applies fn to the data and persists. On a save failure the
+// in-memory data is restored to its pre-call state, so memory never diverges
+// from disk (a failed write must not leave a ghost device). Caller holds s.mu.
+func (s *Store) mutateLocked(fn func(d *StoreData)) error {
+	prev := StoreData{
+		Version:  s.data.Version,
+		Printers: append([]PrinterRecord(nil), s.data.Printers...),
+		Cameras:  append([]CameraRecord(nil), s.data.Cameras...),
+	}
+	fn(&s.data)
+	if err := s.saveLocked(); err != nil {
+		s.data = prev
+		return err
+	}
+	return nil
+}
+
 // UpsertPrinter inserts or replaces a printer by ID and persists.
 func (s *Store) UpsertPrinter(r PrinterRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.data.Printers {
-		if s.data.Printers[i].ID == r.ID {
-			s.data.Printers[i] = r
-			return s.saveLocked()
+	return s.mutateLocked(func(d *StoreData) {
+		for i := range d.Printers {
+			if d.Printers[i].ID == r.ID {
+				d.Printers[i] = r
+				return
+			}
 		}
-	}
-	s.data.Printers = append(s.data.Printers, r)
-	return s.saveLocked()
+		d.Printers = append(d.Printers, r)
+	})
 }
 
 // DeletePrinter removes a printer by ID and persists. Returns whether it existed.
 func (s *Store) DeletePrinter(id string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.data.Printers {
-		if s.data.Printers[i].ID == id {
-			s.data.Printers = append(s.data.Printers[:i], s.data.Printers[i+1:]...)
-			return true, s.saveLocked()
+	found := false
+	err := s.mutateLocked(func(d *StoreData) {
+		for i := range d.Printers {
+			if d.Printers[i].ID == id {
+				d.Printers = append(d.Printers[:i:i], d.Printers[i+1:]...)
+				found = true
+				return
+			}
 		}
+	})
+	if err != nil {
+		return false, err
 	}
-	return false, nil
+	return found, nil
 }
 
 // UpsertCamera inserts or replaces a camera by Name and persists.
 func (s *Store) UpsertCamera(r CameraRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.data.Cameras {
-		if s.data.Cameras[i].Name == r.Name {
-			s.data.Cameras[i] = r
-			return s.saveLocked()
+	return s.mutateLocked(func(d *StoreData) {
+		for i := range d.Cameras {
+			if d.Cameras[i].Name == r.Name {
+				d.Cameras[i] = r
+				return
+			}
 		}
-	}
-	s.data.Cameras = append(s.data.Cameras, r)
-	return s.saveLocked()
+		d.Cameras = append(d.Cameras, r)
+	})
 }
 
 // DeleteCamera removes a camera by Name and persists. Returns whether it existed.
 func (s *Store) DeleteCamera(name string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.data.Cameras {
-		if s.data.Cameras[i].Name == name {
-			s.data.Cameras = append(s.data.Cameras[:i], s.data.Cameras[i+1:]...)
-			return true, s.saveLocked()
+	found := false
+	err := s.mutateLocked(func(d *StoreData) {
+		for i := range d.Cameras {
+			if d.Cameras[i].Name == name {
+				d.Cameras = append(d.Cameras[:i:i], d.Cameras[i+1:]...)
+				found = true
+				return
+			}
+		}
+	})
+	if err != nil {
+		return false, err
+	}
+	return found, nil
+}
+
+// SetPrinterRefHook registers fn to be called (outside the store lock) with the
+// ids of printers whose Camera reference was rewritten by RenameCamera or
+// DeleteCameraClearRefs, so the live adapters can be reloaded.
+func (s *Store) SetPrinterRefHook(fn func(ids []string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refHook = fn
+}
+
+func (s *Store) fireRefHook(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	s.mu.Lock()
+	fn := s.refHook
+	s.mu.Unlock()
+	if fn != nil {
+		fn(ids)
+	}
+}
+
+// RenameCamera replaces the record stored under oldName with rec (whose Name is
+// the new name) and rewrites every printer's Camera reference oldName -> rec.Name,
+// all in ONE save: either the whole rename lands or none of it does. It returns
+// the ids of the printers whose reference changed.
+func (s *Store) RenameCamera(oldName string, rec CameraRecord) ([]string, error) {
+	s.mu.Lock()
+	var affected []string
+	err := func() error {
+		defer s.mu.Unlock()
+		found := false
+		for _, c := range s.data.Cameras {
+			if c.Name == oldName {
+				found = true
+			} else if c.Name == rec.Name {
+				return fmt.Errorf("a camera named %q already exists", rec.Name)
+			}
+		}
+		if !found {
+			return fmt.Errorf("unknown camera %q", oldName)
+		}
+		return s.mutateLocked(func(d *StoreData) {
+			for i := range d.Cameras {
+				if d.Cameras[i].Name == oldName {
+					d.Cameras[i] = rec
+					break
+				}
+			}
+			affected = retargetPrinters(d, oldName, rec.Name)
+		})
+	}()
+	if err != nil {
+		return nil, err
+	}
+	s.fireRefHook(affected)
+	return affected, nil
+}
+
+// DeleteCameraClearRefs removes a camera and blanks the Camera reference of every
+// printer that pointed at it, in one save. Returns whether the camera existed and
+// the ids of the printers that were updated.
+func (s *Store) DeleteCameraClearRefs(name string) (bool, []string, error) {
+	s.mu.Lock()
+	found := false
+	var affected []string
+	err := s.mutateLocked(func(d *StoreData) {
+		for i := range d.Cameras {
+			if d.Cameras[i].Name == name {
+				d.Cameras = append(d.Cameras[:i:i], d.Cameras[i+1:]...)
+				found = true
+				break
+			}
+		}
+		if found {
+			affected = retargetPrinters(d, name, "")
+		}
+	})
+	s.mu.Unlock()
+	if err != nil {
+		return false, nil, err
+	}
+	s.fireRefHook(affected)
+	return found, affected, nil
+}
+
+// retargetPrinters rewrites printers' Camera == from to `to` (copy-on-write so a
+// rollback snapshot is unaffected) and returns the changed printer ids.
+func retargetPrinters(d *StoreData, from, to string) []string {
+	var ids []string
+	for i := range d.Printers {
+		if d.Printers[i].Camera == from {
+			d.Printers[i].Camera = to
+			ids = append(ids, d.Printers[i].ID)
 		}
 	}
-	return false, nil
+	return ids
 }
 
 // saveLocked atomically writes the store: a temp file in the same directory is

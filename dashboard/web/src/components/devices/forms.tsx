@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react'
-import { Button } from '@/components/ui'
+import { Button, Skeleton } from '@/components/ui'
 
 // Shared form primitives for the device add/edit modals.
 
@@ -33,11 +33,13 @@ export function Actions({
   onCancel,
   submitLabel,
   busy,
+  disabled,
   danger,
 }: {
   onCancel: () => void
   submitLabel: string
   busy?: boolean
+  disabled?: boolean
   danger?: boolean
 }) {
   return (
@@ -45,9 +47,33 @@ export function Actions({
       <Button type="button" variant="ghost" onClick={onCancel}>
         Cancel
       </Button>
-      <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={busy}>
+      <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={busy || disabled}>
         {submitLabel}
       </Button>
+    </div>
+  )
+}
+
+// FormError renders a server/validation failure inline, inside the open modal.
+export function FormError({ message }: { message: string | null }) {
+  if (!message) return null
+  return (
+    <div
+      role="alert"
+      className="rounded-lg border border-rec/40 bg-rec/10 px-3 py-2 text-[13px] leading-snug text-rose-200 break-words"
+    >
+      {message}
+    </div>
+  )
+}
+
+// FormSkeleton is the loading placeholder shown while an edit form's GET is in flight.
+export function FormSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} className="h-10" />
+      ))}
     </div>
   )
 }

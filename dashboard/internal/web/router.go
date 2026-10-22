@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/MakerViking/TinkerView/internal/config"
 	"github.com/MakerViking/TinkerView/internal/hub"
@@ -21,7 +20,7 @@ func Router(cfg *config.Config, h *hub.Hub, api *API, resolver TargetResolver) (
 	api.Register(mux)
 	// Read-only per-printer Moonraker proxy (file browse / thumbnails / history).
 	if resolver != nil {
-		mux.Handle("/api/printers/{id}/moonraker/", PrinterProxy(resolver))
+		mux.Handle("/api/printers/{id}/moonraker/", PrinterProxy(resolver, cfg.Auth.Token))
 	}
 	// Ensure unregistered /api/* returns a real 404 instead of being swallowed by
 	// the SPA fallback at "/". The specific "GET /api/..." routes above take
@@ -31,14 +30,16 @@ func Router(cfg *config.Config, h *hub.Hub, api *API, resolver TargetResolver) (
 	})
 
 	if cfg.Go2RTCURL != "" {
-		gp, err := ReverseProxy("/go2rtc", cfg.Go2RTCURL, false) // rewrite Origin (WebSocket)
+		gp, err := ReverseProxy("/go2rtc", cfg.Go2RTCURL, false, cfg.Auth.Token) // rewrite Origin (WebSocket)
 		if err != nil {
 			return nil, err
 		}
-		mux.Handle("/go2rtc/", gp)
+		// Read-only: the SPA only GETs (api/ws, stream.mjpeg, frame.jpeg); go2rtc's
+		// write endpoints (config, streams PUT, exec sources) must not be reachable.
+		mux.Handle("/go2rtc/", readOnlyMethods(gp))
 	}
 	if cfg.Frigate.BaseURL != "" {
-		fp, err := ReverseProxy("/frigate", cfg.Frigate.BaseURL, true) // strip Origin (Frigate CSRF guard)
+		fp, err := ReverseProxy("/frigate", cfg.Frigate.BaseURL, true, cfg.Auth.Token) // strip Origin (Frigate CSRF guard)
 		if err != nil {
 			return nil, err
 		}
@@ -51,28 +52,8 @@ func Router(cfg *config.Config, h *hub.Hub, api *API, resolver TargetResolver) (
 	}
 	mux.Handle("/", spa)
 
-	// Outermost: request logging + panic recovery, then auth, then the mux.
-	return withLogging(withAuth(cfg.Auth.Token, mux)), nil
-}
-
-// withAuth gates /api/* with a bearer token when one is configured. Static assets,
-// /ws (self-checks via ?token=), and the media proxies stay open so the login page
-// loads and <img>/<video> elements (which can't set headers) work over the tailnet.
-func withAuth(token string, next http.Handler) http.Handler {
-	if token == "" {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if got == "" {
-				got = r.URL.Query().Get("token")
-			}
-			if got != token {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
+	// Outermost: request logging + panic recovery, then security headers, the
+	// CSRF/body guards, auth (gates /api/ and the media proxies), gzip for JSON
+	// /api/ responses, then the mux.
+	return withLogging(withSecurityHeaders(withRequestGuards(withAuth(cfg.Auth.Token, withGzip(mux))))), nil
 }

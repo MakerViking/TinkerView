@@ -3,7 +3,7 @@ import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
 import { VideoStream } from '@/components/VideoStream'
 import { DeviceMenu, type MenuAction } from '@/components/devices/DeviceMenu'
-import { AddPrinterModal } from '@/components/devices/AddPrinterModal'
+import { EditPrinterModal } from '@/components/devices/EditPrinterModal'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Badge, Button, Card, Segmented, type BadgeTone } from '@/components/ui'
 import { IconChevronDown, IconExternal, IconFan, IconFile, IconOctagonStop } from '@/components/icons'
@@ -202,7 +202,7 @@ export function PrinterPanel({ id }: { id: string }) {
         </div>
       )}
 
-      {editing && <AddPrinterModal existing={p} onClose={() => setEditing(false)} />}
+      {editing && <EditPrinterModal id={id} onClose={() => setEditing(false)} />}
       {confirmNode}
     </Card>
   )

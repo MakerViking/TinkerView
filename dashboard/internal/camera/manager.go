@@ -81,7 +81,7 @@ func (m *Manager) AddCamera(name, srcKind, srcInput, username, password string) 
 	if err := m.checkStreamCollision(ctx, name); err != nil {
 		return err
 	}
-	rec := devices.CameraRecord{Name: name, Src: src, Username: strings.TrimSpace(username), Password: password, Record: true}
+	rec := devices.CameraRecord{Name: name, Src: src, SrcKind: normKind(srcKind), Username: strings.TrimSpace(username), Password: password, Record: true}
 	if err := m.store.UpsertCamera(rec); err != nil {
 		return fmt.Errorf("save camera: %w", err)
 	}
@@ -94,102 +94,15 @@ func (m *Manager) AddCamera(name, srcKind, srcInput, username, password string) 
 	return nil
 }
 
-// EditCamera changes a live-tile camera's name, source and/or credentials. A
-// rename still requires a non-promoted camera, but the source URL and
-// credentials of a PROMOTED camera are editable in place: the go2rtc stream in
-// Frigate's config is rewritten and Frigate restarts (asynchronously, reported
-// via notices) — so a security cam can be given credentials without a demote/
-// re-promote dance. Empty username and empty newSrcInput each mean "keep the
-// current value".
+// EditCamera is the positional form of Edit used by the WebSocket command: a
+// blank username/password keeps the stored value (there is no way to clear
+// credentials through it; the REST edit exposes ClearCredentials).
 func (m *Manager) EditCamera(name, newName, newSrcKind, newSrcInput, username, password string) error {
-	// Resolve/validate inputs that don't need the lock first.
-	var newSrc string
-	if strings.TrimSpace(newSrcInput) != "" {
-		s, err := m.resolveSrc(newSrcKind, newSrcInput)
-		if err != nil {
-			return err
-		}
-		newSrc = s
-	}
-	renaming := newName != "" && newName != name
-	if renaming {
-		if err := devices.ValidateCameraName(newName); err != nil {
-			return err
-		}
-	}
-
-	asyncWork, err := func() (func(context.Context), error) {
-		ctx, cancel := context.WithTimeout(m.base, opTimeout)
-		defer cancel()
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		rec, ok := m.store.Camera(name)
-		if !ok {
-			return nil, fmt.Errorf("unknown camera %q", name)
-		}
-
-		newRec := rec
-		credsChanged := false
-		if u := strings.TrimSpace(username); u != "" && (u != rec.Username || password != rec.Password) {
-			newRec.Username, newRec.Password, credsChanged = u, password, true
-		}
-		srcChanged := false
-		if newSrc != "" && newSrc != rec.Src {
-			newRec.Src, srcChanged = newSrc, true
-		}
-
-		// Promoted cameras are owned by Frigate: rename needs a demote, but a
-		// source/credential change is re-applied to Frigate asynchronously.
-		if rec.Promoted {
-			if renaming {
-				return nil, fmt.Errorf("camera %q is promoted to Frigate; demote it before renaming", name)
-			}
-			if !srcChanged && !credsChanged {
-				return nil, nil
-			}
-			return func(ctx context.Context) {
-				if e := m.editPromotedSource(ctx, newRec); e != nil {
-					m.notice("error", e.Error())
-				}
-			}, nil
-		}
-
-		// Non-promoted: apply synchronously.
-		if renaming {
-			if _, exists := m.store.Camera(newName); exists {
-				return nil, fmt.Errorf("a camera named %q already exists", newName)
-			}
-			if err := m.checkStreamCollision(ctx, newName); err != nil {
-				return nil, err
-			}
-			newRec.Name = newName
-			if _, err := m.store.DeleteCamera(name); err != nil {
-				return nil, fmt.Errorf("save camera: %w", err)
-			}
-			if err := m.store.UpsertCamera(newRec); err != nil {
-				return nil, fmt.Errorf("save camera: %w", err)
-			}
-			_ = m.g2.DeleteStream(ctx, name)
-			_ = m.g2.PutStream(ctx, newRec.Name, m.sourceWithTransform(newRec))
-			m.publishDeleted(name)
-			m.publishManaged(newRec)
-		} else {
-			if err := m.store.UpsertCamera(newRec); err != nil {
-				return nil, fmt.Errorf("save camera: %w", err)
-			}
-			_ = m.g2.PutStream(ctx, newRec.Name, m.sourceWithTransform(newRec)) // PUT replaces the source
-			m.publishManaged(newRec)
-		}
-		slog.Info("camera edited", "name", newRec.Name)
-		return nil, nil
-	}()
-	if err != nil {
-		return err
-	}
-	if asyncWork != nil {
-		m.async(asyncWork)
-	}
-	return nil
+	_, err := m.Edit(name, EditRequest{
+		NewName: newName, NewSrcKind: newSrcKind, NewSrcInput: newSrcInput,
+		Username: username, Password: password,
+	})
+	return err
 }
 
 // RemoveCamera deletes a camera. A live-tile camera is removed synchronously; a
@@ -233,7 +146,9 @@ func (m *Manager) removeCamera(ctx context.Context, name string) error {
 			return fmt.Errorf("remove from Frigate failed; camera kept: %w", err)
 		}
 	}
-	if _, err := m.store.DeleteCamera(name); err != nil {
+	// Also blank any printer's camera reference to it (one save), so a printer
+	// panel doesn't keep embedding a dead stream.
+	if _, _, err := m.store.DeleteCameraClearRefs(name); err != nil {
 		return fmt.Errorf("save camera store: %w", err)
 	}
 	_ = m.g2.DeleteStream(ctx, name) // best-effort; reconcile won't re-add (gone from store)
@@ -330,19 +245,20 @@ func (m *Manager) resolveSrc(kind, input string) (string, error) {
 		if !strings.HasPrefix(input, "rtsp://") && !strings.HasPrefix(input, "rtsps://") {
 			return "", fmt.Errorf("RTSP source must start with rtsp://")
 		}
-		return input, nil
+		return input, checkUserSource(input)
 	case "h264": // raw H.264 over HTTP (e.g. Snapmaker .h264)
-		return "ffmpeg:" + input + "#video=h264", nil
+		src := "ffmpeg:" + input + "#video=h264"
+		return src, checkUserSource(src)
 	case "mjpeg": // MJPEG printer cam → transcode to H.264 for WebRTC
 		s := "ffmpeg:" + input + "#video=h264"
 		if m.hardware {
 			s += "#hardware"
 		}
-		return s, nil
+		return s, checkUserSource(s)
 	case "mjpeg_raw": // cheap MJPEG passthrough (MSE/MJPEG fallback only)
-		return input, nil
+		return input, checkUserSource(input)
 	case "raw", "advanced", "":
-		return input, nil // power-user verbatim go2rtc source
+		return input, checkUserSource(input) // power-user go2rtc source, minus process-spawning schemes
 	default:
 		return "", fmt.Errorf("unknown source kind %q", kind)
 	}

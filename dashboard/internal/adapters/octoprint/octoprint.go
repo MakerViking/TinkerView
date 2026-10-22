@@ -29,16 +29,16 @@ import (
 const pollInterval = 3 * time.Second
 
 type Printer struct {
-	bus     *bus.Bus
-	id      string
-	name    string
-	camera  string
+	bus      *bus.Bus
+	id       string
+	name     string
+	camera   string
 	httpBase string // http://ip (OctoPrint root)
-	uiURL   string  // web UI to open on click; defaults to httpBase
-	apiKey  string
-	managed bool
-	macros  []string // curated macro allowlist (gcode sent verbatim); empty = none
-	client  *http.Client
+	uiURL    string // web UI to open on click; defaults to httpBase
+	apiKey   string
+	managed  bool
+	macros   []string // curated macro allowlist (gcode sent verbatim); empty = none
+	client   *http.Client
 
 	mu             sync.Mutex
 	online         bool

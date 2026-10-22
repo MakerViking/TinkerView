@@ -5,6 +5,7 @@ import { chipCls } from './CameraSettingsModal'
 import { Button } from '@/components/ui'
 import { IconPlus, IconTrash } from '@/components/icons'
 import { cn } from '@/lib/utils'
+import { withToken } from '@/lib/auth'
 
 const OBJECT_OPTS = ['person', 'car', 'bicycle', 'motorcycle', 'truck', 'cat', 'dog', 'bird']
 const round3 = (n: number) => Math.round(n * 1000) / 1000
@@ -80,7 +81,7 @@ export function ZoneEditor({
       >
         <img
           ref={imgRef}
-          src={`/go2rtc/api/frame.jpeg?src=${encodeURIComponent(cameraName)}`}
+          src={withToken(`/go2rtc/api/frame.jpeg?src=${encodeURIComponent(cameraName)}`)}
           alt={`Live frame of ${cameraName}`}
           draggable={false}
           onClick={onImgClick}

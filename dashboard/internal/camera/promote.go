@@ -107,7 +107,7 @@ func (m *Manager) promoteWork(ctx context.Context, name string, opts PromoteOpts
 // credentials) to Frigate: it rewrites only the go2rtc stream entry and restarts
 // Frigate, leaving the camera block and NVR options untouched. The store is
 // updated before the restart (so a crash heals to the new state) and reverted if
-// Frigate fails to come back. `want` carries the desired Src/Username/Password.
+// Frigate fails to come back. `want` carries the desired Src/SrcKind/Username/Password.
 func (m *Manager) editPromotedSource(ctx context.Context, want devices.CameraRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -132,7 +132,7 @@ func (m *Manager) editPromotedSource(ctx context.Context, want devices.CameraRec
 	}
 	// Carry the new source/credentials onto the current record (preserve NVR options).
 	next := cur
-	next.Src, next.Username, next.Password = want.Src, want.Username, want.Password
+	next.Src, next.SrcKind, next.Username, next.Password = want.Src, want.SrcKind, want.Username, want.Password
 	newRaw, err := updateStreamSourceYAML(raw, next.Name, m.sourceWithTransform(next))
 	if err != nil {
 		return fmt.Errorf("build Frigate config: %w", err)
@@ -222,21 +222,23 @@ func (m *Manager) EditCameraSettings(name string, s devices.CameraSettings) erro
 	if !rec.Promoted {
 		// UI-added live tile: persist the settings (detect/record take effect on the
 		// next promote) and re-PUT the runtime go2rtc stream so the transform applies
-		// to the live tile immediately.
-		m.mu.Lock()
-		applySettings(&rec, s)
-		err := m.store.UpsertCamera(rec)
-		if err == nil {
-			m.publishManaged(rec)
-		}
-		src := m.sourceWithTransform(rec)
-		m.mu.Unlock()
-		if err != nil {
-			return fmt.Errorf("save camera: %w", err)
-		}
+		// to the live tile immediately. The record is re-read under the same lock
+		// that guards the upsert, so a concurrent EditCamera isn't reverted by a
+		// stale snapshot.
 		ctx, cancel := context.WithTimeout(m.base, opTimeout)
 		defer cancel()
-		if err := m.g2.PutStream(ctx, name, src); err != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		cur, ok := m.store.Camera(name)
+		if !ok || cur.Promoted || cur.ConfigStream {
+			return fmt.Errorf("camera %q changed while saving; please retry", name)
+		}
+		applySettings(&cur, s)
+		if err := m.store.UpsertCamera(cur); err != nil {
+			return fmt.Errorf("save camera: %w", err)
+		}
+		m.publishManaged(cur)
+		if err := m.g2.PutStream(ctx, name, m.sourceWithTransform(cur)); err != nil {
 			return fmt.Errorf("update live stream: %w", err)
 		}
 		return nil

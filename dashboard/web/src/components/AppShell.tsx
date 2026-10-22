@@ -167,7 +167,7 @@ export function AppShell({
 
 // UnreadDot marks the bottom-nav Alerts item when new detections arrived.
 function UnreadDot({ tab }: { tab: Tab }) {
-  const count = useLive((s) => s.alerts.length)
+  const count = useLive((s) => s.alertSeq)
   const [seen, setSeen] = useState(0)
   useEffect(() => {
     if (tab === 'alerts') setSeen(count)
@@ -181,7 +181,7 @@ function UnreadDot({ tab }: { tab: Tab }) {
 // NotificationBell opens the Notifications view and badges how many detections
 // arrived since it was last viewed.
 function NotificationBell({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
-  const count = useLive((s) => s.alerts.length)
+  const count = useLive((s) => s.alertSeq)
   const [seen, setSeen] = useState(0)
   useEffect(() => {
     if (tab === 'alerts') setSeen(count)

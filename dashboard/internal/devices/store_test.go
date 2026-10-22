@@ -70,9 +70,9 @@ func TestValidatePrinter(t *testing.T) {
 		{ID: "Bad Id", Kind: "moonraker", Name: "x", BaseURL: "http://x"},
 		{ID: "p1", Kind: "moonraker", Name: "", BaseURL: "http://x"},
 		{ID: "p1", Kind: "moonraker", Name: "x", BaseURL: "ftp://x"},
-		{ID: "p1", Kind: "octoprint", Name: "x", BaseURL: "http://x"},  // missing api key
-		{ID: "p1", Kind: "prusalink", Name: "x", BaseURL: "http://x"},  // missing password
-		{ID: "p1", Kind: "prusalink", Name: "x", APIKey: "pw"},         // missing base_url
+		{ID: "p1", Kind: "octoprint", Name: "x", BaseURL: "http://x"}, // missing api key
+		{ID: "p1", Kind: "prusalink", Name: "x", BaseURL: "http://x"}, // missing password
+		{ID: "p1", Kind: "prusalink", Name: "x", APIKey: "pw"},        // missing base_url
 		{ID: "p1", Kind: "bambu", Name: "x"},                          // missing ip/serial/code
 		{ID: "p1", Kind: "weird", Name: "x", BaseURL: "http://x"},
 	}

@@ -84,6 +84,11 @@ func (e *Engine) handle(ctx context.Context, ev bus.Event) {
 		if !ok {
 			return
 		}
+		// An Offline blip is not a state change: remember the last real state so
+		// Complete -> Offline -> Complete (a Wi-Fi drop) doesn't re-fire "Print finished".
+		if ps.State == adapter.Offline {
+			return
+		}
 		e.mu.Lock()
 		prev, had := e.lastState[ps.ID]
 		e.lastState[ps.ID] = ps.State

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,8 +95,10 @@ func Open(path string) (*Store, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		s.rules = DefaultRules()
+		// An unwritable data dir must not be fatal (the hub shows a banner and keeps
+		// running): serve the in-memory defaults; Set reports the error when edited.
 		if err := s.persist(s.rules); err != nil {
-			return nil, fmt.Errorf("seed %s: %w", path, err)
+			slog.Warn("notification rules: could not seed default file; using in-memory defaults", "path", path, "err", err)
 		}
 		return s, nil
 	}

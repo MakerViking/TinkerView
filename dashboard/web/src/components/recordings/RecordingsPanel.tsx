@@ -4,6 +4,7 @@ import { Modal } from '@/components/Modal'
 import { EmptyState, Notice, SectionHeader, Skeleton } from '@/components/ui'
 import { IconFilm, IconPlay, IconRefresh } from '@/components/icons'
 import { useFrigateEvents, type FrigateEvent } from './useFrigateEvents'
+import { withToken } from '@/lib/auth'
 
 const LABEL_ICON: Record<string, string> = {
   person: '🚶',
@@ -116,14 +117,14 @@ export function RecordingsPanel() {
           {playing.has_clip ? (
             // eslint-disable-next-line jsx-a11y/media-has-caption
             <video
-              src={`/frigate/api/events/${playing.id}/clip.mp4`}
+              src={withToken(`/frigate/api/events/${playing.id}/clip.mp4`)}
               controls
               autoPlay
               className="w-full rounded-lg bg-black"
             />
           ) : (
             <img
-              src={`/frigate/api/events/${playing.id}/snapshot.jpg`}
+              src={withToken(`/frigate/api/events/${playing.id}/snapshot.jpg`)}
               alt=""
               className="w-full rounded-lg bg-black"
             />
@@ -146,7 +147,7 @@ function EventCard({ e, onPlay }: { e: FrigateEvent; onPlay: () => void }) {
     >
       <div className="relative aspect-video bg-black">
         <img
-          src={`/frigate/api/events/${e.id}/thumbnail.jpg`}
+          src={withToken(`/frigate/api/events/${e.id}/thumbnail.jpg`)}
           alt={`${e.label} on ${e.camera}`}
           loading="lazy"
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"

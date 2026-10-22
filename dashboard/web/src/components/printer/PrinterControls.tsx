@@ -80,11 +80,12 @@ function TempSection({ p, setTemp }: { p: PrinterState; setTemp: (h: string, t: 
 function HeaterInput({ label, h, onSet }: { label: string; h: Heater; onSet: (t: number) => void }) {
   const [v, setV] = useState('')
   const submit = () => {
+    // Number('') is 0, which would switch the heater off — require real input.
+    if (v.trim() === '') return
     const t = Number(v)
-    if (!isNaN(t)) {
-      onSet(t)
-      setV('')
-    }
+    if (!Number.isFinite(t) || t < 0) return
+    onSet(t)
+    setV('')
   }
   return (
     <div>
@@ -125,10 +126,22 @@ function PctSlider({
   onCommit: (v: number) => void
 }) {
   const [v, setV] = useState(value)
+  const vRef = useRef(value)
   const dragging = useRef(false)
   useEffect(() => {
-    if (!dragging.current) setV(value)
+    if (!dragging.current) {
+      setV(value)
+      vRef.current = value
+    }
   }, [value])
+  // commit ends a drag / keyboard adjustment and sends the value once. Pointer
+  // cancel, lost capture, blur and key release all funnel here so `dragging` can
+  // never stay stuck (e.g. a touch scroll takes over and no pointerup arrives).
+  const commit = () => {
+    if (!dragging.current) return
+    dragging.current = false
+    onCommit(vRef.current)
+  }
   return (
     <div className="mb-2.5 last:mb-0">
       <div className="flex text-[11px] text-ink-400">
@@ -142,11 +155,17 @@ function PctSlider({
         value={v}
         aria-label={label}
         onPointerDown={() => (dragging.current = true)}
-        onChange={(e) => setV(Number(e.target.value))}
-        onPointerUp={() => {
-          dragging.current = false
-          onCommit(v)
+        onChange={(e) => {
+          const n = Number(e.target.value)
+          vRef.current = n
+          setV(n)
+          dragging.current = true // keyboard changes have no pointerdown
         }}
+        onPointerUp={commit}
+        onPointerCancel={commit}
+        onLostPointerCapture={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         className="w-full"
       />
     </div>

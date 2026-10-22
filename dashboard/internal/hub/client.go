@@ -14,20 +14,25 @@ type client struct {
 	hub  *Hub
 	conn *websocket.Conn
 	send chan []byte
-	done chan struct{} // closed by removeClient; guards sends against a closed `send`
+	done chan struct{} // closed by removeClient; `send` itself is never closed (a send on a closed channel panics)
 }
 
 func (c *client) writeLoop(ctx context.Context) {
-	for data := range c.send {
-		wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := c.conn.Write(wctx, websocket.MessageText, data)
-		cancel()
-		if err != nil {
-			c.conn.Close(websocket.StatusInternalError, "write error")
+	for {
+		select {
+		case <-c.done:
+			c.conn.Close(websocket.StatusNormalClosure, "")
 			return
+		case data := <-c.send:
+			wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := c.conn.Write(wctx, websocket.MessageText, data)
+			cancel()
+			if err != nil {
+				c.conn.Close(websocket.StatusInternalError, "write error")
+				return
+			}
 		}
 	}
-	c.conn.Close(websocket.StatusNormalClosure, "")
 }
 
 func (c *client) readLoop(ctx context.Context) {
@@ -42,17 +47,31 @@ func (c *client) readLoop(ctx context.Context) {
 		if json.Unmarshal(data, &peek) != nil {
 			continue
 		}
-		if peek.Type == "snapshot.request" {
-			// Guard against removeClient having closed c.send concurrently (a send
-			// on a closed channel panics; the default case does not prevent that).
-			select {
-			case c.send <- c.hub.snapshotBytes():
-			case <-c.done:
-				return
-			default:
-			}
+		switch peek.Type {
+		case "snapshot.request":
+			c.enqueue(c.hub.snapshotBytes())
+			continue
+		case "ping":
+			// Client keepalive (~25s): answer so it can detect a dead socket.
+			c.enqueue(pongBytes())
 			continue
 		}
 		c.hub.handleCommand(ctx, data)
 	}
+}
+
+// enqueue queues data for the writer without blocking; it is dropped when the
+// buffer is full or the client was removed. Safe against removeClient because
+// c.send is never closed.
+func (c *client) enqueue(data []byte) {
+	select {
+	case c.send <- data:
+	case <-c.done:
+	default:
+	}
+}
+
+func pongBytes() []byte {
+	data, _ := json.Marshal(ServerMsg{Type: "pong", Ts: time.Now().UnixMilli()})
+	return data
 }
