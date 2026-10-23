@@ -18,7 +18,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
     if (this.state.error) {
       return (
         <Notice tone="error" className="m-4">
-          <div className="font-display font-semibold mb-1">Something broke in the UI</div>
+          <div className="font-semibold mb-1">Something broke in the UI</div>
           <div className="text-sm opacity-80 font-mono">{this.state.error.message}</div>
           <Button
             variant="danger-soft"

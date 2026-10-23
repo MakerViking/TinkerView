@@ -4,9 +4,9 @@ import { Button, Skeleton } from '@/components/ui'
 // Shared form primitives for the device add/edit modals.
 
 export const inputCls =
-  'mt-1 w-full rounded-lg border border-ink-700 bg-ink-950/70 px-3 py-2 text-sm text-ink-50 ' +
-  'placeholder:text-ink-500 transition-colors hover:border-ink-600 ' +
-  'focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 ' +
+  'mt-1.5 w-full rounded-md border border-ink-800 bg-ink-950 px-3 py-2 text-sm text-ink-100 ' +
+  'placeholder:text-ink-500 transition-colors hover:border-ink-700 ' +
+  'focus:border-ink-600 focus:outline-none ' +
   'disabled:opacity-50 disabled:cursor-not-allowed'
 
 export function Field({
@@ -20,11 +20,11 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="font-display text-[11px] font-medium uppercase tracking-[0.08em] text-ink-400">
+      <span className="text-[13px] font-medium text-ink-200">
         {label}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-[11px] leading-snug text-ink-500">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-[12px] leading-snug text-ink-500">{hint}</span>}
     </label>
   )
 }
@@ -60,7 +60,7 @@ export function FormError({ message }: { message: string | null }) {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-rec/40 bg-rec/10 px-3 py-2 text-[13px] leading-snug text-rose-200 break-words"
+      className="rounded-md border border-rec/40 bg-rec/10 px-3 py-2 text-[13px] leading-snug text-ink-100 break-words"
     >
       {message}
     </div>

@@ -61,7 +61,7 @@ export function AddPrinterModal({ onClose }: { onClose: () => void }) {
       >
         {/* Step 1 — what kind of printer? Card picker instead of a bare select. */}
         <div>
-          <span className="font-display text-[11px] font-medium uppercase tracking-[0.08em] text-ink-400">
+          <span className="text-[13px] font-medium text-ink-200">
             Type
           </span>
           <div role="radiogroup" aria-label="Printer type" className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -75,16 +75,16 @@ export function AddPrinterModal({ onClose }: { onClose: () => void }) {
                   key={k.value}
                   onClick={() => set('kind', k.value)}
                   className={cn(
-                    'flex flex-col items-start rounded-xl border px-3 py-2.5 text-left transition-colors',
+                    'flex flex-col items-start rounded-md border px-3 py-2.5 text-left transition-colors',
                     active
-                      ? 'border-brand-500/60 bg-brand-500/10 shadow-[0_0_12px_-4px_rgb(56_189_248/0.4)]'
+                      ? 'border-brand-500/60 bg-brand-500/10'
                       : 'border-ink-700 bg-ink-950/40 hover:border-ink-500',
                   )}
                 >
-                  <span className={cn('font-display text-sm font-semibold', active ? 'text-brand-300' : 'text-ink-100')}>
+                  <span className={cn('text-sm font-semibold', active ? 'text-brand-400' : 'text-ink-100')}>
                     {k.label}
                   </span>
-                  <span className="text-[10px] text-ink-500">{k.sub}</span>
+                  <span className="text-[12px] text-ink-500">{k.sub}</span>
                 </button>
               )
             })}
@@ -113,8 +113,8 @@ export function AddPrinterModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Step 2 — connection, shaped per kind. */}
-        <fieldset className="rounded-xl border border-ink-800 bg-ink-950/40 p-3.5">
-          <legend className="px-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        <fieldset className="rounded-lg border border-ink-850 bg-ink-900 p-4">
+          <legend className="px-1 text-[13px] font-medium text-ink-300">
             Connection
           </legend>
           <ConnectionFields form={form} set={set} />

@@ -207,13 +207,13 @@ export function EditCameraModal({ name: current, onClose }: { name: string; onCl
           )}
 
           {dropsLogin && (
-            <p className="text-[12px] text-amber-300">
+            <p className="text-[12px] text-brand-400">
               Advanced sources carry their own login — the saved username and password will be removed.
             </p>
           )}
 
           {restartsFrigate && (
-            <p className="text-[12px] text-amber-300">
+            <p className="text-[12px] text-brand-400">
               This camera records to Frigate NVR — saving restarts Frigate (~25s).
             </p>
           )}

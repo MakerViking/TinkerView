@@ -96,7 +96,7 @@ export function RulesPanel() {
 
   return (
     <div className="flex max-w-3xl flex-col gap-3">
-      <p className="text-xs leading-relaxed text-ink-500">
+      <p className="max-w-2xl text-sm leading-relaxed text-ink-400">
         When a detection fires, the <span className="text-ink-200">first matching rule wins</span>. Empty
         selectors mean "any". Use it to make recognized people/plates silent and unknown visitors loud. Object
         & name matching needs face/plate recognition enrolled under the other tabs.
@@ -117,14 +117,14 @@ export function RulesPanel() {
           />
         ))}
         {rules.length === 0 && (
-          <div className="rounded-xl border border-dashed border-ink-700 p-6 text-center text-sm text-ink-500">
+          <div className="rounded-lg border border-dashed border-ink-800 p-6 text-center text-sm text-ink-500">
             No rules — every detection sends a normal push. Add a rule to prioritize or silence.
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={add} className="text-brand-300 hover:text-brand-200">
+        <Button variant="ghost" size="sm" onClick={add} className="text-brand-400 hover:text-brand-300">
           <IconPlus className="text-[13px]" />
           Add rule
         </Button>
@@ -133,7 +133,7 @@ export function RulesPanel() {
         </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
-      {status && <div className="text-sm text-emerald-300">{status}</div>}
+      {status && <div className="text-sm text-ink-300">{status}</div>}
     </div>
   )
 }
@@ -310,7 +310,7 @@ function RuleCard({
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block font-display text-[10px] font-medium uppercase tracking-[0.08em] text-ink-500">
+      <span className="mb-1.5 block text-[13px] font-medium text-ink-200">
         {label}
       </span>
       {children}

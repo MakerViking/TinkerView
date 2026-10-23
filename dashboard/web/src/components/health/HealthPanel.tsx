@@ -1,42 +1,77 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { Badge, Button, Card } from '@/components/ui'
-import { IconBox, IconDisk } from '@/components/icons'
+import { Button, Card, SectionHeader } from '@/components/ui'
 import type { Container, DiskUsage } from '@/types/ws'
 import { cn, fmtBytes, fmtDuration } from '@/lib/utils'
+
+// name | status | cpu | mem | uptime | action. On narrow screens CPU/Mem/Uptime
+// collapse into a line under the name so the name keeps its width.
+const ROW_COLS =
+  'grid items-center gap-x-4 grid-cols-[minmax(0,1fr)_auto_auto] ' +
+  'sm:grid-cols-[minmax(0,1fr)_6.5rem_4rem_5.5rem_6rem_auto]'
 
 export function HealthPanel() {
   const containers = useLive((s) => s.containers)
   const disks = useLive((s) => s.disks)
   const frigateOnline = useLive((s) => s.frigateOnline)
 
+  // Problems (not running) first, then by name — render-time only.
+  const sorted = useMemo(
+    () =>
+      [...containers].sort((a, b) => {
+        const pa = a.state === 'running' ? 1 : 0
+        const pb = b.state === 'running' ? 1 : 0
+        return pa - pb || a.name.localeCompare(b.name)
+      }),
+    [containers],
+  )
+  const running = containers.filter((c) => c.state === 'running').length
+  const stopped = containers.length - running
+
   return (
-    <div className="flex flex-col gap-7">
+    <div className="flex max-w-5xl flex-col gap-6">
+      <SectionHeader
+        title="Server"
+        meta={
+          <>
+            {containers.length > 0 && `${running} running · ${stopped} stopped · `}
+            <span className={frigateOnline ? undefined : 'text-rose-300'}>
+              Frigate {frigateOnline ? 'online' : 'offline'}
+            </span>
+          </>
+        }
+      />
+
       <section>
-        <SectionTitle icon={<IconBox className="text-[14px]" />} title="Services" />
-        <div className="mb-3 flex items-center gap-2 text-sm">
-          <Badge tone={frigateOnline ? 'ok' : 'danger'} dot pulse={frigateOnline}>
-            Frigate {frigateOnline ? 'online' : 'offline'}
-          </Badge>
-        </div>
+        <h2 className="mb-3 text-sm font-semibold text-ink-100">Services</h2>
         {containers.length === 0 ? (
           <p className="text-sm text-ink-500">
             No container data yet — the Docker adapter is wired in a later phase (via the
             docker-socket-proxy).
           </p>
         ) : (
-          <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
-            {containers.map((c) => (
-              <ContainerCard key={c.id} c={c} />
-            ))}
-          </div>
+          <Card className="overflow-hidden">
+            <div className={cn(ROW_COLS, 'border-b border-ink-850 px-4 py-2 text-[12px] text-ink-500')}>
+              <span>Name</span>
+              <span>Status</span>
+              <span className="hidden text-right sm:block">CPU</span>
+              <span className="hidden text-right sm:block">Memory</span>
+              <span className="hidden text-right sm:block">Uptime</span>
+              <span className="w-[4.25rem]" aria-hidden />
+            </div>
+            <div className="divide-y divide-ink-850">
+              {sorted.map((c) => (
+                <ContainerRow key={c.id} c={c} />
+              ))}
+            </div>
+          </Card>
         )}
       </section>
 
       <section>
-        <SectionTitle icon={<IconDisk className="text-[14px]" />} title="Storage" />
+        <h2 className="mb-3 text-sm font-semibold text-ink-100">Storage</h2>
         {disks.length === 0 ? (
           <p className="text-sm text-ink-500">No disk data yet.</p>
         ) : (
@@ -49,19 +84,10 @@ export function HealthPanel() {
       </section>
 
       <section>
-        <SectionTitle title="Notifications" />
+        <h2 className="mb-3 text-sm font-semibold text-ink-100">Notifications</h2>
         <TestNotifyButton />
       </section>
     </div>
-  )
-}
-
-function SectionTitle({ icon, title }: { icon?: React.ReactNode; title: string }) {
-  return (
-    <h2 className="mb-3 flex items-center gap-1.5 font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-400">
-      {icon}
-      {title}
-    </h2>
   )
 }
 
@@ -92,37 +118,47 @@ function TestNotifyButton() {
       <Button onClick={send} disabled={state === 'sending'}>
         {state === 'sending' ? 'Sending…' : 'Send test notification'}
       </Button>
-      {state === 'ok' && <span className="text-sm text-emerald-300">Sent ✓</span>}
+      {state === 'ok' && <span className="text-sm text-ink-300">Sent ✓</span>}
       {state === 'err' && <span className="text-sm text-rose-300">{msg || 'Failed'}</span>}
     </div>
   )
 }
 
-function ContainerCard({ c }: { c: Container }) {
+function ContainerRow({ c }: { c: Container }) {
   const { send } = useWs()
   const { ask, confirmNode } = useConfirm()
   const up = c.state === 'running'
+  const exited = c.state === 'exited' || c.state === 'dead'
+  const dotCls = up ? 'bg-emerald-400' : exited ? 'bg-rec' : 'bg-brand-400'
+  const textCls = up ? 'text-ink-300' : exited ? 'text-rose-300' : 'text-brand-300'
+  const state = c.state.charAt(0).toUpperCase() + c.state.slice(1)
   return (
-    <Card className="flex flex-col gap-2 p-3.5">
-      <div className="flex items-center gap-2">
-        <span className="font-display text-sm font-semibold text-ink-50">{c.name}</span>
-        <span className="ml-auto" />
-        <Badge tone={up ? 'ok' : 'danger'} dot pulse={up}>
-          {c.state}
-        </Badge>
+    <div className={cn(ROW_COLS, 'group px-4 py-2.5 hover:bg-ink-850/50')}>
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium text-ink-100">{c.name}</div>
+        {up && (
+          <div className="font-mono text-[12px] tabular-nums text-ink-500 sm:hidden">
+            {c.cpuPct.toFixed(0)}% · {fmtBytes(c.memUsed)} · {fmtDuration(c.uptimeSec)}
+          </div>
+        )}
       </div>
-      <div className="text-xs text-ink-400">{c.status}</div>
-      {up && (
-        <div className="flex gap-3 font-mono text-[11px] text-ink-400">
-          <span>CPU {c.cpuPct.toFixed(0)}%</span>
-          <span>Mem {fmtBytes(c.memUsed)}</span>
-          <span>Up {fmtDuration(c.uptimeSec)}</span>
-        </div>
-      )}
+      <span className={cn('flex items-center gap-2 text-[13px]', textCls)} title={c.status}>
+        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dotCls)} />
+        {state}
+      </span>
+      <span className="hidden text-right font-mono text-[13px] tabular-nums text-ink-300 sm:block">
+        {up ? `${c.cpuPct.toFixed(0)}%` : '—'}
+      </span>
+      <span className="hidden text-right font-mono text-[13px] tabular-nums text-ink-300 sm:block">
+        {up ? fmtBytes(c.memUsed) : '—'}
+      </span>
+      <span className="hidden text-right font-mono text-[13px] tabular-nums text-ink-300 sm:block">
+        {up ? fmtDuration(c.uptimeSec) : '—'}
+      </span>
       <Button
         size="xs"
-        variant="outline"
-        className="self-start"
+        variant="ghost"
+        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
         onClick={() =>
           ask({
             title: `Restart ${c.name}`,
@@ -136,17 +172,17 @@ function ContainerCard({ c }: { c: Container }) {
         Restart
       </Button>
       {confirmNode}
-    </Card>
+    </div>
   )
 }
 
 function DiskGauge({ d }: { d: DiskUsage }) {
   const tone =
-    d.usedPct > 90 ? 'bg-rec' : d.usedPct > 70 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-600 to-brand-400'
+    d.usedPct > 90 ? 'bg-rec' : d.usedPct > 70 ? 'bg-brand-500' : 'bg-brand-400'
   return (
-    <Card className="flex flex-col gap-2 p-3.5">
+    <Card className="flex flex-col gap-2 p-4">
       <div className="flex justify-between text-sm">
-        <span className="font-mono text-ink-200">{d.path}</span>
+        <span className="font-mono text-sm text-ink-100">{d.path}</span>
         <span className={cn('font-mono', d.usedPct > 90 ? 'text-rose-300' : 'text-ink-400')}>
           {d.usedPct.toFixed(0)}%
         </span>
@@ -157,11 +193,11 @@ function DiskGauge({ d }: { d: DiskUsage }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`${d.path} used`}
-        className="h-2 overflow-hidden rounded-full bg-ink-800"
+        className="h-1.5 overflow-hidden rounded-full bg-ink-800"
       >
         <div className={cn('h-full rounded-full', tone)} style={{ width: `${Math.min(100, d.usedPct)}%` }} />
       </div>
-      <div className="font-mono text-[11px] text-ink-500">
+      <div className="text-[12px] text-ink-500">
         {fmtBytes(d.used)} used · {fmtBytes(d.free)} free
       </div>
     </Card>

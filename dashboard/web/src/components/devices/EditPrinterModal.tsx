@@ -119,8 +119,8 @@ export function EditPrinterModal({ id, onClose }: { id: string; onClose: () => v
             />
           </Field>
 
-          <fieldset className="rounded-xl border border-ink-800 bg-ink-950/40 p-3.5">
-            <legend className="px-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+          <fieldset className="rounded-lg border border-ink-850 bg-ink-900 p-4">
+            <legend className="px-1 text-[13px] font-medium text-ink-300">
               Connection
             </legend>
             <ConnectionFields

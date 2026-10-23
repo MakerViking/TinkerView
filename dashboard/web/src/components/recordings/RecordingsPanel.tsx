@@ -6,21 +6,9 @@ import { IconFilm, IconPlay, IconRefresh } from '@/components/icons'
 import { useFrigateEvents, type FrigateEvent } from './useFrigateEvents'
 import { withToken } from '@/lib/auth'
 
-const LABEL_ICON: Record<string, string> = {
-  person: '🚶',
-  car: '🚗',
-  bicycle: '🚲',
-  motorcycle: '🏍️',
-  truck: '🚚',
-  bus: '🚌',
-  cat: '🐱',
-  dog: '🐶',
-  bird: '🐦',
-}
-
 const selectCls =
-  'rounded-lg border border-ink-700 bg-ink-950/70 px-2.5 py-1.5 text-sm text-ink-100 transition-colors ' +
-  'hover:border-ink-600 focus:outline-none focus:border-brand-500'
+  'rounded-md border border-ink-800 bg-ink-950 px-3 py-1.5 text-sm text-ink-100 ' +
+  'focus:border-ink-600 focus:outline-none'
 
 // RecordingsPanel is a custom browser over Frigate's event clips (the recordings
 // produced by object-only recording). It hits Frigate's HTTP API through the
@@ -46,7 +34,7 @@ export function RecordingsPanel() {
   }, [events])
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <SectionHeader title="Recordings" meta={events.length ? `${events.length} events` : undefined}>
         <select
           value={camera}
@@ -78,7 +66,7 @@ export function RecordingsPanel() {
           onClick={reload}
           title="Refresh"
           aria-label="Refresh recordings"
-          className="grid h-8 w-8 place-items-center rounded-lg border border-ink-700 bg-ink-950/70 text-ink-300 transition-colors hover:border-ink-600 hover:text-ink-100"
+          className="grid h-8 w-8 place-items-center rounded-md border border-ink-800 bg-ink-950 text-ink-300 transition-colors hover:border-ink-600 hover:text-ink-100"
         >
           <IconRefresh className="text-[14px]" />
         </button>
@@ -129,7 +117,7 @@ export function RecordingsPanel() {
               className="w-full rounded-lg bg-black"
             />
           )}
-          <div className="mt-2.5 font-mono text-xs text-ink-400">
+          <div className="mt-2.5 text-[13px] text-ink-400">
             {new Date(playing.start_time * 1000).toLocaleString()}
             {playing.zones?.length ? ` · zones: ${playing.zones.join(', ')}` : ''}
           </div>
@@ -141,29 +129,26 @@ export function RecordingsPanel() {
 
 function EventCard({ e, onPlay }: { e: FrigateEvent; onPlay: () => void }) {
   return (
-    <button
-      onClick={onPlay}
-      className="group overflow-hidden rounded-xl border border-ink-800 bg-ink-900/80 text-left shadow-elev transition-all hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-pop"
-    >
+    <button onClick={onPlay} className="group overflow-hidden rounded-lg bg-ink-900 text-left">
       <div className="relative aspect-video bg-black">
         <img
           src={withToken(`/frigate/api/events/${e.id}/thumbnail.jpg`)}
           alt={`${e.label} on ${e.camera}`}
           loading="lazy"
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          className="h-full w-full object-cover"
         />
-        <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] text-white backdrop-blur-sm">
-          {(LABEL_ICON[e.label] ?? '·') + ' ' + (e.sub_label || e.label)}
+        <span className="absolute left-1.5 top-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[12px] text-white">
+          {e.sub_label || e.label}
         </span>
         {e.has_clip && (
-          <span className="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-white backdrop-blur-sm">
+          <span className="absolute bottom-1.5 right-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-100">
             <IconPlay className="text-[11px]" />
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1 px-2.5 py-2 text-xs text-ink-400">
-        <span className="truncate font-mono">{e.camera}</span>
-        <time className="ml-auto whitespace-nowrap font-mono text-[11px] text-ink-500">
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <span className="truncate text-[13px] text-ink-200">{e.camera}</span>
+        <time className="ml-auto whitespace-nowrap text-[12px] tabular-nums text-ink-500">
           {new Date(e.start_time * 1000).toLocaleString([], {
             month: 'short',
             day: 'numeric',

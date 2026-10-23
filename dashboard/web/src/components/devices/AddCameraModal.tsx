@@ -131,7 +131,7 @@ export function AddCameraModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <div className="rounded-xl border border-ink-800 bg-ink-950/40 p-3.5">
+        <div className="rounded-lg border border-ink-850 bg-ink-900 p-4">
           <div className="flex items-center gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium text-ink-100">Enable Frigate recording / NVR</div>

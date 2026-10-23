@@ -6,6 +6,8 @@ import { IconDots } from '@/components/icons'
 export interface MenuAction {
   label: string
   danger?: boolean
+  // Draws a hairline above this item, to group related actions.
+  separator?: boolean
   onClick: () => void
 }
 
@@ -53,7 +55,7 @@ export function DeviceMenu({ actions, className }: { actions: MenuAction[]; clas
         aria-haspopup="menu"
         aria-expanded={open}
         title="Manage"
-        className="grid h-6 w-6 place-items-center rounded-md bg-white/10 text-ink-100 backdrop-blur-sm transition-colors hover:bg-white/20"
+        className="grid h-7 w-7 place-items-center rounded-md bg-black/45 text-ink-100 transition-colors hover:bg-black/70"
       >
         <IconDots className="text-[14px]" />
       </button>
@@ -64,25 +66,27 @@ export function DeviceMenu({ actions, className }: { actions: MenuAction[]; clas
             ref={menuRef}
             role="menu"
             style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 60 }}
-            className="min-w-[12rem] rounded-xl border border-ink-700 bg-ink-850 py-1.5 shadow-pop animate-pop"
+            className="min-w-[13rem] rounded-lg border border-ink-800 bg-ink-900 p-1 shadow-pop animate-pop"
           >
             {actions.map((a, i) => (
-              <button
-                key={i}
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false)
-                  a.onClick()
-                }}
-                className={cn(
-                  'block w-full px-3.5 py-1.5 text-left text-sm transition-colors',
-                  a.danger
-                    ? 'text-rose-300 hover:bg-rec/10'
-                    : 'text-ink-100 hover:bg-ink-800',
-                )}
-              >
-                {a.label}
-              </button>
+              <div key={i}>
+                {a.separator && i > 0 && <div role="separator" className="mx-2 my-1 h-px bg-ink-800" />}
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false)
+                    a.onClick()
+                  }}
+                  className={cn(
+                    'block w-full rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors',
+                    a.danger
+                      ? 'text-rose-300 hover:bg-rec/10'
+                      : 'text-ink-100 hover:bg-ink-800',
+                  )}
+                >
+                  {a.label}
+                </button>
+              </div>
             ))}
           </div>,
           document.body,

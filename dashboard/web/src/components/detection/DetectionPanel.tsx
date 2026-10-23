@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Field, inputCls } from '@/components/devices/forms'
 import { Button, Notice, SectionHeader, Skeleton } from '@/components/ui'
-import { IconActivity, IconCheck } from '@/components/icons'
+import { IconCheck } from '@/components/icons'
 import type { DetectionSettings } from '@/types/ws'
 
 const DETECTORS: { value: string; label: string }[] = [
@@ -177,7 +177,7 @@ export function DetectionPanel() {
     <div className="flex max-w-2xl flex-col gap-4">
       <div>
         <SectionHeader title="Detection hardware" />
-        <p className="mt-1.5 text-xs leading-relaxed text-ink-500">
+        <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-ink-400">
           Choose what runs Frigate's object detection and video decode. The dashboard writes Frigate's config and
           restarts it; anything it can't do (passing in a GPU/Coral device, swapping the image, exporting a model)
           is listed under "Host prerequisites". <span className="text-ink-300">CPU is the safe default that works
@@ -269,8 +269,8 @@ export function DetectionPanel() {
         </select>
       </Field>
 
-      <Notice tone={steps.ok ? 'ok' : 'warn'} className="text-xs">
-        <div className="mb-1 flex items-center gap-1.5 font-display font-semibold tracking-wide">
+      <Notice tone={steps.ok ? 'ok' : 'warn'} className="text-[13px]">
+        <div className="mb-1 flex items-center gap-1.5 font-medium">
           {steps.ok && <IconCheck className="text-[13px]" />}
           {steps.ok
             ? s.detector === active && s.detector !== 'cpu'
@@ -300,7 +300,7 @@ export function DetectionPanel() {
         </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
-      {status && <div className="text-sm text-emerald-300">{status}</div>}
+      {status && <div className="text-sm text-ink-300">{status}</div>}
     </div>
   )
 }
@@ -335,21 +335,21 @@ function LiveSpeed() {
   const entries = speeds ? Object.entries(speeds) : []
   if (!entries.length) return null
   return (
-    <div className="rounded-xl border border-ink-800 bg-ink-900/80 p-3.5 shadow-elev">
-      <div className="mb-2 flex items-center gap-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
-        <IconActivity className="text-[12px] text-brand-400" />
+    <div className="rounded-lg border border-ink-850 bg-ink-900 p-4">
+      <div className="mb-2 flex items-center gap-1.5 text-[13px] font-medium text-ink-300">
         Live detector speed
-        <span className="font-sans font-normal normal-case tracking-normal text-ink-600">(lower = faster)</span>
+        <span className="font-normal text-ink-500">(lower = faster)</span>
       </div>
       {entries.map(([name, ms]) => (
-        <div key={name} className="flex items-baseline justify-between font-mono text-xs tabular-nums">
-          <span className="text-ink-400">{name}</span>
+        <div key={name} className="flex items-baseline justify-between gap-4">
+          <span className="font-mono text-[13px] text-ink-400">{name}</span>
           {ms > 0 ? (
-            <span className="text-emerald-300">
-              <span className="text-base font-medium">{ms.toFixed(1)}</span> ms/inference
+            <span className="font-mono tabular-nums text-ink-50">
+              <span className="text-2xl font-semibold">{ms.toFixed(1)}</span>{' '}
+              <span className="text-[13px] text-ink-400">ms/inference</span>
             </span>
           ) : (
-            <span className="text-ink-500">idle — no frames being detected</span>
+            <span className="text-[13px] text-ink-500">idle — no frames being detected</span>
           )}
         </div>
       ))}

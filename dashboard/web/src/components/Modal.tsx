@@ -69,7 +69,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-1000/70 p-4 backdrop-blur-sm animate-fade sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-[2px] animate-fade sm:items-center"
       onClick={onClose}
     >
       <div
@@ -79,13 +79,13 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          'my-8 w-full rounded-2xl border border-ink-700 bg-ink-900 shadow-pop animate-pop outline-none',
+          'my-8 w-full rounded-lg border border-ink-800 bg-ink-900 shadow-pop animate-pop outline-none',
           size === 'xl' ? 'max-w-3xl' : size === 'lg' ? 'max-w-xl' : 'max-w-md',
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-4 border-b border-ink-800 px-5 py-3.5">
-          <h2 className="font-display font-semibold tracking-wide text-ink-50">{title}</h2>
+        <div className="flex items-center justify-between gap-4 border-b border-ink-850 px-5 py-3.5">
+          <h2 className="text-[15px] font-semibold text-ink-50">{title}</h2>
           <button
             type="button"
             onClick={onClose}
