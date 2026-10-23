@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
 // Backend to proxy to; point it at a deployed instance with e.g.
-// TV_BACKEND=http://tower.local:8088 npm run dev
+// TV_BACKEND=http://nas.local:8088 npm run dev
 const backend = process.env.TV_BACKEND ?? 'http://127.0.0.1:8088'
 
 // In dev, proxy API/WS/media to the Go backend (which itself proxies go2rtc +

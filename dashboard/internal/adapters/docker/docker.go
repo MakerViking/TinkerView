@@ -225,6 +225,9 @@ func (s *Source) Restart(ctx context.Context, idOrName string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("restart %s: refused by the docker proxy (restart is off by default; set DOCKERPROXY_POST=1 in .env to allow it, see SECURITY.md)", name)
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("restart %s: HTTP %d", name, resp.StatusCode)
 	}

@@ -4,7 +4,7 @@
 # How to use this file:
 #   1) Replace the HOST-SPECIFIC block below by pasting your matching preset from
 #      frigate/host-presets/<host>.yml  (nvidia / intel / amd-rocm / cpu / pi).
-#   2) Edit the go2rtc streams and cameras to match YOUR inventory. Two worked
+#   2) Edit the go2rtc streams and cameras to match your inventory. Two worked
 #      examples are provided: one RTSP security cam, one MJPEG printer cam.
 #      Adding a camera = copy one block.
 #   3) Secrets come from .env via {FRIGATE_RTSP_PASSWORD} substitution.
@@ -24,8 +24,9 @@ detectors:
 
 mqtt:
   enabled: true
-  # Host networking (Unraid/Pi): 127.0.0.1. Windows/Docker-Desktop bridge: use
-  # host.docker.internal. Point Home Assistant's MQTT integration at the SAME broker.
+  # Host networking (Unraid/Pi): 127.0.0.1. With compose.bridge.yml (Windows/Docker
+  # Desktop): use the service name `mqtt`. Point Home Assistant's MQTT integration at
+  # the SAME broker.
   host: 127.0.0.1
   port: 1883
 
@@ -66,7 +67,7 @@ go2rtc:
     # IMPORTANT: keep a socket-IO stall timeout before -i. If go2rtc restarts this
     # exec producer on a source hiccup without reaping the old ffmpeg, the orphan
     # keeps holding an NVENC session forever. Consumer GPUs cap simultaneous NVENC
-    # sessions (e.g. GTX 1060 = 8); accumulated orphans saturate the cap and NEW _hq
+    # sessions (e.g. a GTX 1060 allows 8); accumulated orphans saturate the cap and NEW _hq
     # encoders then fail with "OpenEncodeSessionEx failed: incompatible client key
     # (21)" / "No capable devices found". The timeout makes a stalled orphan self-
     # terminate (a healthy stream reads frames well under 15s, so it never trips).
@@ -113,7 +114,7 @@ snapshots:
 # pointing at a placeholder floods the log with
 #   <cam>: Unable to read frames from ffmpeg process
 # every few seconds, which buries the errors you actually need on first start.
-# Flip `enabled: true` on each camera once its go2rtc stream above points at YOUR
+# Flip `enabled: true` on each camera once its go2rtc stream above points at your
 # camera. Restart Frigate to apply (the UI's disable toggle is temporary).
 cameras:
 

@@ -46,13 +46,13 @@ export function ConnectionFields({
     <div className="flex flex-col gap-3">
       {form.kind === 'moonraker' && (
         <>
-          <Field label="Base URL" hint={editing ? undefined : 'http://192.168.0.76 or :7125'}>
+          <Field label="Base URL" hint={editing ? undefined : 'http://192.168.1.50 or :7125'}>
             <input
               className={inputCls}
               value={form.baseUrl ?? ''}
               onChange={(e) => set('baseUrl', e.target.value)}
               required
-              placeholder="http://192.168.0.76"
+              placeholder="http://192.168.1.50"
             />
           </Field>
           <Field label="API key" hint={editing && hasKey ? keep : 'optional; leave blank if none'}>
@@ -69,13 +69,13 @@ export function ConnectionFields({
 
       {form.kind === 'octoprint' && (
         <>
-          <Field label="Base URL" hint={editing ? undefined : 'http://192.168.0.x'}>
+          <Field label="Base URL" hint={editing ? undefined : 'http://192.168.1.x'}>
             <input
               className={inputCls}
               value={form.baseUrl ?? ''}
               onChange={(e) => set('baseUrl', e.target.value)}
               required
-              placeholder="http://192.168.0.22"
+              placeholder="http://192.168.1.51"
             />
           </Field>
           <Field label="API key" hint={editing ? keep : 'OctoPrint → Settings → Application Keys'}>
@@ -93,13 +93,13 @@ export function ConnectionFields({
 
       {form.kind === 'prusalink' && (
         <>
-          <Field label="Base URL" hint={editing ? undefined : "the printer's IP, e.g. http://192.168.0.x"}>
+          <Field label="Base URL" hint={editing ? undefined : "the printer's IP, e.g. http://192.168.1.x"}>
             <input
               className={inputCls}
               value={form.baseUrl ?? ''}
               onChange={(e) => set('baseUrl', e.target.value)}
               required
-              placeholder="http://192.168.0.40"
+              placeholder="http://192.168.1.52"
             />
           </Field>
           <Field
@@ -130,7 +130,7 @@ export function ConnectionFields({
               value={form.ip ?? ''}
               onChange={(e) => set('ip', e.target.value)}
               required
-              placeholder="192.168.0.23"
+              placeholder="192.168.1.53"
             />
           </Field>
           <Field label="Serial">

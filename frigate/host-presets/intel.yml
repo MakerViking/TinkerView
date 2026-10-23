@@ -4,7 +4,7 @@
 # OpenVINO detection + VAAPI/QSV decode. The model below ships INSIDE the Frigate
 # image, so NO download is needed.
 #
-# ── Pick the detector `device:` for YOUR Intel hardware ─────────────────────
+# ── Pick the detector `device:` for your Intel hardware ─────────────────────
 #   GPU   iGPU Gen9+ (Skylake/2015 and newer) OR an Arc dGPU (A380/A750/B580…).
 #         Fastest. THIS IS THE DEFAULT BELOW.
 #   NPU   Core Ultra "AI Boost" NPU (Meteor Lake / Lunar Lake / Arrow Lake).

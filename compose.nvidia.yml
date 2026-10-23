@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Nvidia GPU overlay — YOUR Unraid host (GTX 1060): NVDEC decode, NVENC transcode
+# Nvidia GPU overlay (Unraid, Linux): NVDEC decode, NVENC transcode
 # for the printer-cam MJPEG->H.264 path, and ONNX/TensorRT object detection.
 #
 # Requires the Unraid "Nvidia Driver" plugin (or nvidia-container-toolkit on Linux).

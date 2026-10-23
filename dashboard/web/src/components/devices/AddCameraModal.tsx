@@ -102,7 +102,7 @@ export function AddCameraModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setSrcInput(e.target.value)}
             required
             disabled={added}
-            placeholder="rtsp://192.168.0.9:554/stream"
+            placeholder="rtsp://192.168.1.60:554/stream"
           />
         </Field>
 

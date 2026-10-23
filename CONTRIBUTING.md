@@ -33,11 +33,21 @@ dependencies are not, and anything EPL-licensed needs a permissive dual-license 
 
 ## Development
 
-See the **Quick start** in [`README.md`](README.md). Before opening a PR, all four
-of these must pass:
+For running the app locally, see [`dashboard/README.md`](dashboard/README.md)
+(`./dashboard/run-local.sh` serves it in demo mode) and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Before opening a PR, these must pass; CI
+runs the same checks:
 
-- From `dashboard/`: `go build ./...`, `go vet ./...`, and `go test ./...`.
-- From `dashboard/web/`: `npm run typecheck` and `npm run build`.
+- From `dashboard/`: `gofmt -l .` (no output), `go mod tidy` (no diff), `go build ./...`,
+  `go vet ./...`, and `go test -race ./...`.
+- From `dashboard/web/`: `npm ci`, `npm run typecheck` and `npm run build`.
+- If you touch a compose file, `docker compose config -q` must still pass for the
+  overlay combinations in `.github/workflows/ci.yml`.
+
+Never put real IP addresses, hostnames, tokens, camera credentials or ntfy topics in tracked
+files; use examples such as `192.168.1.50` and `nas.local`. Please follow the
+[Code of Conduct](CODE_OF_CONDUCT.md), and report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).
 
 > A standalone `tsc` run in your editor may report `window` / `document` / `location`
 > "not found" — that's a false alarm from ignoring the project's `lib: dom`.

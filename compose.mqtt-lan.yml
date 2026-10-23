@@ -1,0 +1,24 @@
+# -----------------------------------------------------------------------------
+# OPTIONAL: password-protected MQTT for other machines on your LAN/tailnet
+# (e.g. Home Assistant on a different host, or in a bridge container).
+#
+# The default stack publishes Mosquitto on this host's loopback only. This
+# overlay ADDS a second listener on port 1884 that requires a username and
+# password; the anonymous 1883 listener stays on loopback for Frigate and the
+# dashboard.
+#
+#   1) docker exec -it mosquitto mosquitto_passwd -c /mosquitto/data/passwd homeassistant
+#   2) docker compose -f docker-compose.yml -f compose.<preset>.yml \
+#        -f compose.mqtt-lan.yml up -d mqtt
+#   3) In Home Assistant: MQTT -> broker <this-host-ip>, port 1884, that user.
+#
+# Set MQTT_LAN_BIND in .env to a single interface IP (e.g. your tailnet IP) to
+# limit where 1884 listens; the default is every interface. Plain MQTT, no TLS:
+# trusted networks only. See SECURITY.md.
+# -----------------------------------------------------------------------------
+services:
+  mqtt:
+    ports:
+      - "${MQTT_LAN_BIND:-0.0.0.0}:1884:1884"
+    volumes:
+      - ./mosquitto/mosquitto.lan.conf:/mosquitto/config/mosquitto.conf:ro

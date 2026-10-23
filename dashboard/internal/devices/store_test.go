@@ -17,7 +17,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal("expected empty store")
 	}
 
-	if err := s.UpsertPrinter(PrinterRecord{ID: "qidi", Kind: "moonraker", Name: "Qidi", BaseURL: "http://192.168.0.76"}); err != nil {
+	if err := s.UpsertPrinter(PrinterRecord{ID: "qidi", Kind: "moonraker", Name: "Qidi", BaseURL: "http://192.168.1.50"}); err != nil {
 		t.Fatalf("upsert printer: %v", err)
 	}
 	if err := s.UpsertCamera(CameraRecord{Name: "garage", Src: "rtsp://x/y", Record: true}); err != nil {
@@ -29,7 +29,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	if got := s2.Printers(); len(got) != 1 || got[0].ID != "qidi" || got[0].BaseURL != "http://192.168.0.76" {
+	if got := s2.Printers(); len(got) != 1 || got[0].ID != "qidi" || got[0].BaseURL != "http://192.168.1.50" {
 		t.Fatalf("printers not persisted: %+v", got)
 	}
 	if got := s2.Cameras(); len(got) != 1 || got[0].Name != "garage" || !got[0].Record {
@@ -37,7 +37,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 
 	// Upsert replaces by key.
-	if err := s2.UpsertPrinter(PrinterRecord{ID: "qidi", Kind: "moonraker", Name: "Qidi Plus 4", BaseURL: "http://192.168.0.76"}); err != nil {
+	if err := s2.UpsertPrinter(PrinterRecord{ID: "qidi", Kind: "moonraker", Name: "Qidi Plus 4", BaseURL: "http://192.168.1.50"}); err != nil {
 		t.Fatalf("replace printer: %v", err)
 	}
 	if got := s2.Printers(); len(got) != 1 || got[0].Name != "Qidi Plus 4" {

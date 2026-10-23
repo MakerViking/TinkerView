@@ -163,7 +163,7 @@ export function EditCameraModal({ name: current, onClose }: { name: string; onCl
               onChange={(e) => setSrcInput(e.target.value)}
               disabled={sourceLocked}
               required
-              placeholder="rtsp://192.168.0.9:554/stream"
+              placeholder="rtsp://192.168.1.60:554/stream"
             />
           </Field>
 

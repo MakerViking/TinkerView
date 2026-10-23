@@ -18,13 +18,17 @@
 #      `ss -lntp | grep :5001` — since bridge networking hides the conflict rather
 #      than resolving it, and you may prefer to stop the other service.
 #
+# Needs Docker Compose v2.24 or newer (the `!reset` tag). Services join the compose
+# network, so they reach each other by service name (frigate, mqtt, dockerproxy).
+#
 # Cost of bridge networking: no ONVIF camera autodiscovery, and WebRTC needs the
 # explicit candidate below or it silently falls back to MSE (~1s instead of ~0.5s).
 #
 # On Windows you MUST ALSO:
-#   1) In .env set HOST_LAN_IP to the Windows machine's LAN IP.
+#   1) In .env set FRIGATE_HOST_LAN_IP to the Windows machine's LAN IP.
 #   2) In frigate/config.yml uncomment the `go2rtc: webrtc: candidates:` block.
-#   3) In frigate/config.yml set mqtt host to `host.docker.internal`.
+#   3) In frigate/config.yml set mqtt host to `mqtt` (the compose service name;
+#      Frigate shares the compose network in bridge mode).
 #
 # Apply:  docker compose -f docker-compose.yml -f compose.bridge.yml up -d
 # Then:   paste frigate/host-presets/cpu.yml (or nvidia if a GPU is exposed) into config.
@@ -32,26 +36,33 @@
 
 services:
   frigate:
-    network_mode: "bridge"   # override the base's host networking
+    network_mode: !reset null   # drop the base's host networking: join the compose network
+    # 5000 (Frigate's UNAUTHENTICATED internal UI/API) and 1984 (go2rtc API, which
+    # can run commands when GO2RTC_ALLOW_ARBITRARY_EXEC=true) are published on this
+    # machine's loopback only. The dashboard reaches them by service name, so it
+    # doesn't need them on the LAN. Use 8971 for the authenticated Frigate UI.
     ports:
-      - "5000:5000"          # Frigate UI
+      - "127.0.0.1:5000:5000" # Frigate UI (unauthenticated) - localhost only
       - "8971:8971"          # Frigate authenticated UI
-      - "1984:1984"          # go2rtc UI
-      - "8554:8554"          # RTSP restream
+      - "127.0.0.1:1984:1984" # go2rtc UI/API - localhost only
+      - "8554:8554"          # RTSP restream (unauthenticated video; LAN only)
       - "8555:8555/tcp"      # WebRTC
       - "8555:8555/udp"      # WebRTC
 
-  # Dashboard on bridge networking with a published port. You MUST also edit
-  # dashboard/data/config.yaml to reach the other services by their compose service
-  # names instead of 127.0.0.1, e.g.:
-  #   frigate.base_url: http://frigate:5000   mqtt_addr: tcp://mqtt:1883
-  #   go2rtc_url: http://frigate:1984         docker.host: tcp://dockerproxy:2375
-  #   ntfy.base_url: http://ntfy:8092
+  # Dashboard on the compose network with a published port. The overlay sets the
+  # Docker-proxy and ntfy addresses for you (env vars win over config.yaml). You
+  # MUST also edit dashboard/data/config.yaml so the rest reaches the other
+  # services by their compose service names instead of 127.0.0.1:
+  #   frigate.base_url: http://frigate:5000   frigate.mqtt_addr: tcp://mqtt:1883
+  #   go2rtc_url: http://frigate:1984
   dashboard:
-    network_mode: "bridge"
+    network_mode: !reset null
+    environment:
+      DOCKER_HOST: tcp://dockerproxy:2375
+      NTFY_BASE_URL: http://ntfy:8092
     ports:
       - "8088:8088"
   ntfy:
-    network_mode: "bridge"
+    network_mode: !reset null
     ports:
       - "8092:8092"

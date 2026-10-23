@@ -174,7 +174,7 @@ func TestCSRFOriginCheck(t *testing.T) {
 	h := newRouter(t, "", g, f)
 	post := func(target, origin string) int {
 		return do(h, "POST", target, func(r *http.Request) {
-			r.Host = "tower.local:8088"
+			r.Host = "nas.local:8088"
 			if origin != "" {
 				r.Header.Set("Origin", origin)
 			}
@@ -186,7 +186,7 @@ func TestCSRFOriginCheck(t *testing.T) {
 	if c := post("/api/notify/test", "null"); c != 403 {
 		t.Errorf("null origin: want 403, got %d", c)
 	}
-	if c := post("/api/notify/test", "http://tower.local:8088"); c == 403 {
+	if c := post("/api/notify/test", "http://nas.local:8088"); c == 403 {
 		t.Error("same-origin rejected")
 	}
 	if c := post("/api/notify/test", ""); c == 403 {
@@ -198,12 +198,12 @@ func TestCSRFOriginCheck(t *testing.T) {
 	if f.hits.Load() != 0 {
 		t.Error("cross-origin request reached Frigate")
 	}
-	if c := post("/frigate/api/faces/x/create", "http://tower.local:8088"); c != 200 {
+	if c := post("/frigate/api/faces/x/create", "http://nas.local:8088"); c != 200 {
 		t.Errorf("frigate same-origin: got %d", c)
 	}
 	// GET with a foreign Origin (e.g. cross-site <img>) is not a CSRF concern.
 	if c := do(h, "GET", "/api/version", func(r *http.Request) {
-		r.Host = "tower.local:8088"
+		r.Host = "nas.local:8088"
 		r.Header.Set("Origin", "http://evil.example")
 	}).Code; c != 200 {
 		t.Errorf("GET foreign origin: got %d", c)

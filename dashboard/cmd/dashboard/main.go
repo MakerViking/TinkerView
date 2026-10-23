@@ -48,7 +48,13 @@ func main() {
 func serve() int {
 	var configPath string
 	flag.StringVar(&configPath, "config", "", "path to config.yaml (default: <data_dir>/config.yaml, else the legacy /config.yaml mount)")
+	var doHealthcheck bool
+	flag.BoolVar(&doHealthcheck, "healthcheck", false, "probe the running dashboard's /healthz and exit 0 (healthy) or 1; used by the container HEALTHCHECK")
 	flag.Parse()
+
+	if doHealthcheck {
+		return healthcheck(configPath)
+	}
 
 	configPath = config.Resolve(configPath)
 	cfg, err := config.Load(configPath)
@@ -60,6 +66,7 @@ func serve() int {
 	if logFile != nil {
 		defer logFile.Close()
 	}
+	warnIfOpen(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

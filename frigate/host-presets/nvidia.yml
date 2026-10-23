@@ -1,4 +1,4 @@
-# === Nvidia preset (YOUR Unraid GTX 1060 3GB, Pascal) =======================
+# === Nvidia GPU preset (tested on a GTX 1060 3GB, Pascal) ===============
 # Paste the detectors:/model:/ffmpeg: blocks below OVER the "HOST-SPECIFIC BLOCK"
 # at the top of ../config.yml. Verified against Frigate 0.17 docs (2026-06).
 #
@@ -28,9 +28,10 @@
 # Everything else (the -tensorrt image, the onnx detector) is identical.
 #
 # --- Export the model (run on a Docker host; needs internet). MODEL_SIZE=t (tiny)
-#     is the safe default for the 1060; use s for a touch more accuracy. -------------
+#     is the safe default for a 3 GB card; use s for a touch more accuracy. -------------
+#   (<install-dir> = the directory that holds docker-compose.yml)
 #   cd /tmp && docker build . --build-arg MODEL_SIZE=t --build-arg IMG_SIZE=320 \
-#     --output /mnt/user/appdata/webcamserver/frigate/model_cache -f- <<'EOF'
+#     --output <install-dir>/frigate/model_cache -f- <<'EOF'
 #   FROM python:3.11 AS build
 #   RUN apt-get update && apt-get install --no-install-recommends -y cmake libgl1 && rm -rf /var/lib/apt/lists/*
 #   COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /bin/
