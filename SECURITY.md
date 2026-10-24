@@ -160,6 +160,22 @@ Then point Home Assistant at `<host-ip>:1884` with that user. Add more users wit
 the same `mosquitto_passwd` command without `-c`. This is plain MQTT without TLS,
 so keep it on a trusted network.
 
+## Printer connections
+
+The dashboard talks to printers on your LAN with the credentials you give it.
+
+- **Moonraker (Klipper):** the dashboard's read-only file and history browser goes
+  through a proxy that adds the printer's API key. That proxy only allows the
+  endpoints the browser needs (file list, file metadata, G-code thumbnails, print
+  history). Everything else, including Moonraker's `/access/*` credential endpoints,
+  config files and machine endpoints, is refused.
+- **Bambu Lab:** the printer's MQTT connection uses TLS, but the dashboard does not
+  verify the printer's certificate yet (Bambu printers present a certificate from
+  Bambu's own CA, which is not in the system trust store). Someone who can intercept
+  traffic on your LAN could impersonate the printer and capture its access code.
+  Keep Bambu printers on a trusted network segment. Proper certificate pinning is
+  planned.
+
 ## Hardening checklist
 
 - [ ] Set `DASHBOARD_TOKEN`.

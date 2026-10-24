@@ -116,12 +116,19 @@ interface, a hardened default configuration, and an installer so other people ca
 - Secrets are never serialised back out of the API.
 - Frigate's environment is an explicit list instead of `env_file: .env`.
 - `install.sh` cleans up its temporary files (which can hold secrets) on interrupt.
+- The Moonraker file/history proxy only allows the read endpoints the dashboard uses;
+  Moonraker's `/access/*` credential endpoints, config files and machine endpoints are
+  refused (previously any GET path was forwarded with the printer's API key).
+- `golang.org/x/net` updated to v0.61.0; frontend build tooling (vite, postcss,
+  browserslist, nanoid) updated to clear advisories. The shipped frontend had none.
 - See [SECURITY.md](SECURITY.md) for the trust model and how to report a vulnerability.
 
 ### Known issues
 
 - A WebRTC camera tile can occasionally stall. The dashboard reconnects it automatically
   after about 15 seconds; the root cause is under investigation.
+- Bambu Lab printers: the MQTT TLS connection does not verify the printer's
+  certificate yet (see SECURITY.md).
 - The `intel`, `amd-rocm`, `pi` and `coral` presets have not been run on real hardware,
   and bridge mode has only run on Linux under podman, not on Windows.
 

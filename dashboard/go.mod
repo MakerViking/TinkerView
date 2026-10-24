@@ -1,6 +1,6 @@
 module github.com/MakerViking/TinkerView
 
-go 1.25
+go 1.26.0
 
 // NOTE: `require` directives and go.sum are maintained with `go mod tidy`, and
 // are committed; the Docker build uses them as-is (-mod=readonly). Direct dependencies are deliberately
@@ -18,6 +18,6 @@ require (
 
 require (
 	github.com/gorilla/websocket v1.5.3 // indirect
-	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 )

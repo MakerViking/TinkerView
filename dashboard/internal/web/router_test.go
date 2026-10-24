@@ -381,7 +381,7 @@ func TestPrinterProxyStripsAndCaches(t *testing.T) {
 	mux.Handle("/api/printers/{id}/moonraker/", h)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/printers/p1/moonraker/server/info?token=tok&x=1", nil)
+	req := httptest.NewRequest("GET", "/api/printers/p1/moonraker/server/files/list?token=tok&x=1", nil)
 	req.Header.Set("Authorization", "Bearer tok")
 	req.Header.Set("Cookie", authCookie+"=zzz")
 	mux.ServeHTTP(rec, req)
@@ -390,14 +390,14 @@ func TestPrinterProxyStripsAndCaches(t *testing.T) {
 	}
 	l := up.last.Load()
 	if l.Header.Get("Authorization") != "" || l.Header.Get("Cookie") != "" || l.URL.Query().Has("token") ||
-		l.URL.Query().Get("x") != "1" || l.Header.Get("X-Api-Key") != "k1" || l.URL.Path != "/server/info" {
+		l.URL.Query().Get("x") != "1" || l.Header.Get("X-Api-Key") != "k1" || l.URL.Path != "/server/files/list" {
 		t.Errorf("bad forwarded request: %v %v", l.Header, l.URL)
 	}
 
 	// Editing the key rebuilds the proxy; the cache holds one entry per printer.
 	res.key = "k2"
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/printers/p1/moonraker/server/info", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/api/printers/p1/moonraker/server/files/list", nil))
 	if up.last.Load().Header.Get("X-Api-Key") != "k2" {
 		t.Error("edited api key not picked up")
 	}

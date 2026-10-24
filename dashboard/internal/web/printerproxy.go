@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 )
@@ -12,6 +13,31 @@ import (
 // by the device manager.
 type TargetResolver interface {
 	PrinterTarget(id string) (baseURL, apiKey string, ok bool)
+}
+
+// moonrakerReadPaths are the only Moonraker endpoints the SPA reads through the
+// proxy. Everything else is refused: the proxy injects the printer's API key, so an
+// open path would hand dashboard users Moonraker's credential endpoints
+// (/access/api_key, /access/oneshot_token), config files and machine info.
+var moonrakerReadPaths = []string{
+	"/server/files/list",
+	"/server/files/metadata",
+	"/server/history/list",
+	"/server/history/totals",
+}
+
+// moonrakerPathAllowed reports whether a (prefix-stripped, cleaned) Moonraker path
+// may be proxied: an exact read endpoint, or a file under gcodes/ (thumbnails).
+func moonrakerPathAllowed(p string) bool {
+	if p != path.Clean(p) {
+		return false
+	}
+	for _, a := range moonrakerReadPaths {
+		if p == a {
+			return true
+		}
+	}
+	return strings.HasPrefix(p, "/server/files/gcodes/")
 }
 
 // PrinterProxy serves GET/HEAD /api/printers/{id}/moonraker/* by reverse-proxying to
@@ -45,6 +71,10 @@ func PrinterProxy(resolver TargetResolver, token string) http.Handler {
 		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/api/printers/"+id+"/moonraker")
 		if !strings.HasPrefix(r.URL.Path, "/") {
 			r.URL.Path = "/" + r.URL.Path
+		}
+		if !moonrakerPathAllowed(r.URL.Path) {
+			http.Error(w, "not available through the dashboard", http.StatusForbidden)
+			return
 		}
 		// Clear RawPath so EscapedPath re-derives from the (stripped) Path — keeps
 		// percent-encoded filenames consistent after the prefix trim.
