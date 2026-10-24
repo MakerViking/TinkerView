@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { WebSocketProvider } from '@/ws/WebSocketProvider'
-import { AppShell, type Tab } from '@/components/AppShell'
+import { AppShell, TAB_IDS } from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { CameraWall } from '@/components/camera/CameraWall'
 import { RecordingsPanel } from '@/components/recordings/RecordingsPanel'
@@ -13,9 +13,10 @@ import { AddPrinterModal } from '@/components/devices/AddPrinterModal'
 import { Button, EmptyState, SectionHeader } from '@/components/ui'
 import { IconPlus, IconPrinter3d } from '@/components/icons'
 import { useLive } from '@/store/live'
+import { useHashTab } from '@/lib/useHashTab'
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('cameras')
+  const [tab, setTab] = useHashTab(TAB_IDS, 'cameras')
   return (
     <WebSocketProvider>
       <AppShell tab={tab} onTab={setTab}>
@@ -54,9 +55,13 @@ function PrintersView() {
     <div className="flex flex-col gap-4">
       <SectionHeader
         title="Printers"
-        meta={ids.length ? `${ids.length} · ${printing} printing` : undefined}
+        meta={
+          ids.length
+            ? `${ids.length} ${ids.length === 1 ? 'printer' : 'printers'}${printing ? ` · ${printing} printing` : ''}`
+            : undefined
+        }
       >
-        <Button variant="primary" onClick={() => setAdding(true)}>
+        <Button onClick={() => setAdding(true)}>
           <IconPlus className="text-[14px]" />
           Add printer
         </Button>

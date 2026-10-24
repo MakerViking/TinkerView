@@ -99,7 +99,7 @@ export function PlatesPanel() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-3">
-      <p className="text-xs leading-relaxed text-ink-500">
+      <p className="max-w-2xl text-sm leading-relaxed text-ink-400">
         Map a name to one or more license plates. Recognized plates show that name on detections and can be
         prioritized or silenced under <span className="text-ink-200">Notification rules</span> (e.g. your own
         car = silent). Saving restarts Frigate (~25s). Plates may be exact text or a regex.
@@ -142,7 +142,7 @@ export function PlatesPanel() {
         </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
-      {status && <div className="text-sm text-emerald-300">{status}</div>}
+      {status && <div className="text-sm text-ink-300">{status}</div>}
     </div>
   )
 }

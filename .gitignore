@@ -5,6 +5,7 @@ dashboard/data/
 
 # --- personal working notes + local dev scaffolding (contain real LAN IPs) ---
 handoff.md
+REVIEW-*.md
 dashboard/dev/
 
 # --- build artifacts ---
@@ -25,6 +26,11 @@ frigate/clips/
 frigate/go2rtc_homekit.yml
 frigate/backup_config.yaml
 frigate/*.bak
+frigate/*.bak.yml
+frigate/*.pre-*.bak.*
+*.bak
+*.bak.yml
+*.pre-*.bak.*
 
 # --- recordings / media ---
 storage/

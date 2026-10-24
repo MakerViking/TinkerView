@@ -33,12 +33,12 @@ export function PrinterControls({ p }: { p: PrinterState }) {
 
 function Section({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-ink-800 bg-ink-950/40 p-3">
+    <div className="rounded-lg bg-ink-950 p-3">
       <div className="mb-2.5 flex items-center">
-        <span className="font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-400">
+        <span className="text-[13px] font-medium text-ink-300">
           {title}
         </span>
-        {right && <span className="ml-auto font-mono text-[11px] text-ink-400">{right}</span>}
+        {right && <span className="ml-auto font-mono text-[12px] tabular-nums text-ink-400">{right}</span>}
       </div>
       {children}
     </div>
@@ -80,17 +80,18 @@ function TempSection({ p, setTemp }: { p: PrinterState; setTemp: (h: string, t: 
 function HeaterInput({ label, h, onSet }: { label: string; h: Heater; onSet: (t: number) => void }) {
   const [v, setV] = useState('')
   const submit = () => {
+    // Number('') is 0, which would switch the heater off — require real input.
+    if (v.trim() === '') return
     const t = Number(v)
-    if (!isNaN(t)) {
-      onSet(t)
-      setV('')
-    }
+    if (!Number.isFinite(t) || t < 0) return
+    onSet(t)
+    setV('')
   }
   return (
     <div>
-      <div className="text-[11px] text-ink-400">
+      <div className="text-[12px] text-ink-400">
         {label}{' '}
-        <span className="font-mono text-ink-100">{h.actual.toFixed(0)}°</span>
+        <span className="font-mono tabular-nums text-ink-100">{h.actual.toFixed(0)}°</span>
         <span className="font-mono text-ink-500"> / {h.target.toFixed(0)}°</span>
       </div>
       <div className="mt-1 flex gap-1">
@@ -101,7 +102,7 @@ function HeaterInput({ label, h, onSet }: { label: string; h: Heater; onSet: (t:
           onKeyDown={(e) => e.key === 'Enter' && submit()}
           placeholder="°C"
           aria-label={`${label} target temperature`}
-          className="w-14 rounded-md border border-ink-700 bg-ink-950/70 px-1.5 py-1 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none"
+          className="w-14 rounded-md border border-ink-800 bg-ink-900 px-1.5 py-1 font-mono text-xs text-ink-100 placeholder:text-ink-500 focus:border-ink-600 focus:outline-none"
         />
         <Button size="xs" onClick={submit}>
           Set
@@ -125,13 +126,25 @@ function PctSlider({
   onCommit: (v: number) => void
 }) {
   const [v, setV] = useState(value)
+  const vRef = useRef(value)
   const dragging = useRef(false)
   useEffect(() => {
-    if (!dragging.current) setV(value)
+    if (!dragging.current) {
+      setV(value)
+      vRef.current = value
+    }
   }, [value])
+  // commit ends a drag / keyboard adjustment and sends the value once. Pointer
+  // cancel, lost capture, blur and key release all funnel here so `dragging` can
+  // never stay stuck (e.g. a touch scroll takes over and no pointerup arrives).
+  const commit = () => {
+    if (!dragging.current) return
+    dragging.current = false
+    onCommit(vRef.current)
+  }
   return (
     <div className="mb-2.5 last:mb-0">
-      <div className="flex text-[11px] text-ink-400">
+      <div className="flex text-[12px] text-ink-400">
         <span>{label}</span>
         <span className="ml-auto font-mono text-ink-100">{v}%</span>
       </div>
@@ -142,11 +155,17 @@ function PctSlider({
         value={v}
         aria-label={label}
         onPointerDown={() => (dragging.current = true)}
-        onChange={(e) => setV(Number(e.target.value))}
-        onPointerUp={() => {
-          dragging.current = false
-          onCommit(v)
+        onChange={(e) => {
+          const n = Number(e.target.value)
+          vRef.current = n
+          setV(n)
+          dragging.current = true // keyboard changes have no pointerdown
         }}
+        onPointerUp={commit}
+        onPointerCancel={commit}
+        onLostPointerCapture={commit}
+        onKeyUp={commit}
+        onBlur={commit}
         className="w-full"
       />
     </div>
@@ -223,7 +242,7 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
             Home Z
           </Button>
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-ink-400">
+        <div className="flex items-center gap-1 text-[12px] text-ink-400">
           step
           {steps.map((s) => (
             <button
@@ -233,8 +252,8 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
               className={cn(
                 'rounded-md px-2 py-1 font-mono transition-colors',
                 step === s
-                  ? 'bg-brand-500/20 text-brand-200 ring-1 ring-inset ring-brand-400/30'
-                  : 'bg-ink-800 text-ink-300 hover:bg-ink-700',
+                  ? 'bg-brand-400/15 text-brand-300'
+                  : 'bg-ink-850 text-ink-300 hover:bg-ink-800',
               )}
             >
               {s}
@@ -247,7 +266,7 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
           <Jog axis="Y" ctl={ctl} step={step} />
           <Jog axis="Z" ctl={ctl} step={step} />
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-ink-400">
+        <div className="flex items-center gap-1.5 text-[12px] text-ink-400">
           extrude
           {[-10, -1, 1, 10].map((d) => (
             <Button key={d} size="xs" onClick={() => ctl({ op: 'extrude', dist: d })} className="font-mono">
@@ -264,7 +283,7 @@ function MoveSection({ ctl, idle }: { ctl: (a: PrinterAction) => void; idle: boo
 function Jog({ axis, step, ctl }: { axis: string; step: number; ctl: (a: PrinterAction) => void }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="w-3 font-mono text-[11px] text-ink-400">{axis}</span>
+      <span className="w-3 font-mono text-[12px] text-ink-400">{axis}</span>
       <Button
         size="xs"
         aria-label={`Move ${axis} −${step} mm`}

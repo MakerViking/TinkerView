@@ -1,0 +1,29 @@
+# -----------------------------------------------------------------------------
+# SELinux overlay (Fedora, RHEL, Rocky, Alma and other hosts where `getenforce`
+# prints Enforcing). Without it the containers are denied access to the bind
+# mounts (./frigate, ./dashboard/data, ./ntfy, ./mosquitto/*) and to the engine
+# socket that docker-socket-proxy reads.
+#
+# `label=disable` turns SELinux confinement off for these containers only; the
+# host stays Enforcing. It is the blunt fix. The finer one is to add :z to each
+# bind mount (it relabels the host folder), which you can do yourself if you
+# prefer; do not do that for a large recordings folder, the relabel is slow.
+#
+# install.sh adds this overlay automatically when SELinux is Enforcing. By hand,
+# stack it after your host overlay:
+#   docker compose -f docker-compose.yml -f compose.cpu.yml -f compose.selinux.yml up -d
+#
+# NOT TESTED by the author on a real SELinux host. Reports welcome.
+# -----------------------------------------------------------------------------
+
+services:
+  frigate:
+    security_opt: ["label=disable"]
+  mqtt:
+    security_opt: ["label=disable"]
+  dashboard:
+    security_opt: ["label=disable"]
+  ntfy:
+    security_opt: ["label=disable"]
+  dockerproxy:
+    security_opt: ["label=disable"]

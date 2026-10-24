@@ -7,12 +7,15 @@
 # detection, low-latency WebRTC, and the Home Assistant integration.
 #
 # This base file is HOST-AGNOSTIC. Pick exactly ONE host overlay and run:
-#   docker compose -f docker-compose.yml -f compose.nvidia.yml up -d   # your Unraid (GTX 1060)
+#   docker compose -f docker-compose.yml -f compose.nvidia.yml up -d   # Nvidia GPU box (Unraid, Linux)
 #   docker compose -f docker-compose.yml -f compose.intel.yml  up -d   # Intel iGPU box
 #   docker compose -f docker-compose.yml -f compose.amd-rocm.yml up -d # AMD GPU box
 #   docker compose -f docker-compose.yml -f compose.cpu.yml    up -d   # safe CPU-only fallback
 #   docker compose -f docker-compose.yml -f compose.pi.yml     up -d   # Raspberry Pi (arm64)
 #   docker compose -f docker-compose.yml -f compose.bridge.yml up -d   # Windows, or a host port conflict
+# Optional: password-protected MQTT for Home Assistant on another machine:
+#   docker compose -f docker-compose.yml -f compose.<preset>.yml -f compose.mqtt-lan.yml up -d
+# (see the comments in mosquitto/config/mosquitto.conf for the exact steps).
 # A Coral EdgeTPU (USB/PCIe) can be STACKED on any host for detection while that
 # host's GPU still decodes, e.g.:
 #   docker compose -f docker-compose.yml -f compose.intel.yml -f compose.coral.yml up -d
@@ -35,9 +38,17 @@ services:
     # loopback: a port already taken on the host (including its internal API on
     # 127.0.0.1:5001) crash-loops the container. Overridden by compose.bridge.yml.
     network_mode: host
-    # Pass FRIGATE_* secrets (RTSP creds, etc.) into the container so Frigate can
-    # substitute them in config.yml via the {FRIGATE_RTSP_PASSWORD} syntax.
-    env_file: .env
+    # Frigate gets ONLY the variables below, not the whole .env: DASHBOARD_TOKEN,
+    # NTFY_TOKEN and TS_AUTHKEY stay out of a container that sits on the host network
+    # with unauthenticated ports (5000, 1984). Frigate substitutes FRIGATE_* values in
+    # config.yml via the {FRIGATE_RTSP_PASSWORD} syntax. Need more (for example
+    # FRIGATE_CAM2_PASSWORD)? Add a line here, or put it in a docker-compose.override.yml.
+    environment:
+      TZ: ${TZ:-UTC}
+      FRIGATE_RTSP_USER: ${FRIGATE_RTSP_USER:-}
+      FRIGATE_RTSP_PASSWORD: ${FRIGATE_RTSP_PASSWORD:-}
+      FRIGATE_HOST_LAN_IP: ${FRIGATE_HOST_LAN_IP:-}
+      GO2RTC_ALLOW_ARBITRARY_EXEC: ${GO2RTC_ALLOW_ARBITRARY_EXEC:-false}
     # Shared memory for decoded frames. Raise as you add cameras (see Frigate docs).
     shm_size: ${FRIGATE_SHM_SIZE:-256mb}
     volumes:
@@ -56,9 +67,12 @@ services:
     container_name: mosquitto
     image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto:2.0.22}
     restart: unless-stopped
-    # Frigate (host network) reaches the broker at 127.0.0.1:1883 via this mapping.
+    # Published on the host's LOOPBACK only: the broker is anonymous, so it must not
+    # be reachable from your LAN. Frigate and the dashboard (host network) reach it
+    # at 127.0.0.1:1883. For Home Assistant on another machine, use
+    # compose.mqtt-lan.yml (adds a password-protected listener on 1884).
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - ./mosquitto/data:/mosquitto/data
@@ -75,10 +89,15 @@ services:
     build: ./dashboard
     restart: unless-stopped
     network_mode: host # reach Frigate :5000/:1984, Mosquitto :1883, dockerproxy :2375, printers on LAN
-    env_file: .env
+    # No `env_file` on purpose: the dashboard gets only the variables below, not
+    # your camera passwords (FRIGATE_RTSP_*) or other secrets from .env.
     environment:
+      TZ: ${TZ:-UTC}
       DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
-      DOCKER_HOST: ${DOCKER_HOST:-tcp://127.0.0.1:2375}
+      DASHBOARD_LISTEN: ${DASHBOARD_LISTEN:-}
+      DASHBOARD_LOG_LEVEL: ${DASHBOARD_LOG_LEVEL:-}
+      DASHBOARD_WS_ORIGINS: ${DASHBOARD_WS_ORIGINS:-}
+      DOCKER_HOST: ${DASHBOARD_DOCKER_HOST:-tcp://127.0.0.1:2375} # not ${DOCKER_HOST}: that is YOUR engine socket (podman sets it)
       NTFY_BASE_URL: ${NTFY_BASE_URL:-http://127.0.0.1:8092}
       NTFY_TOKEN: ${NTFY_TOKEN:-}
     volumes:
@@ -100,6 +119,14 @@ services:
       # fallback — but new installs should not add it.)
       - ./dashboard/data:/data
       - ${STORAGE_PATH:-./storage/frigate}:/media/frigate:ro # disk usage of the recordings volume
+    # The image's own HEALTHCHECK does the same thing; repeated here so it also
+    # applies to images built without one (e.g. podman's default OCI format).
+    healthcheck:
+      test: ["CMD", "/dashboard", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     depends_on: [frigate, mqtt, dockerproxy]
 
   # --- ntfy (self-hosted push notifications) ----------------------------------
@@ -116,21 +143,29 @@ services:
       NTFY_BASE_URL: ${NTFY_BASE_URL:-http://127.0.0.1:8092}
       NTFY_AUTH_FILE: /var/lib/ntfy/user.db
       NTFY_AUTH_DEFAULT_ACCESS: deny-all
-      NTFY_UPSTREAM_BASE_URL: https://ntfy.sh # relays a content-free poll so iOS gets instant push
+      # Relays a content-free poll request to ntfy.sh so iOS gets instant push. Set
+      # NTFY_UPSTREAM_BASE_URL= (empty) in .env to switch it off; Android is unaffected.
+      NTFY_UPSTREAM_BASE_URL: ${NTFY_UPSTREAM_BASE_URL-https://ntfy.sh}
     volumes:
       - ./ntfy:/var/lib/ntfy
 
   # --- docker-socket-proxy (least-privilege Docker access for health/restart) -
-  # The dashboard talks to THIS, never the raw socket. Only container list/stats
-  # and restart (POST) are granted.
+  # The dashboard talks to THIS, never the raw socket. Default is READ-ONLY
+  # (POST=0): the container panel lists containers and shows stats, and the Restart
+  # button is disabled. Caveat: this proxy version cannot limit POST to "restart"
+  # only; DOCKERPROXY_POST=1 also permits container creation, which is root-equivalent
+  # on the host, so it is an opt-in. The port is bound to loopback either way.
+  # See SECURITY.md.
   dockerproxy:
     container_name: docker-socket-proxy
     image: ${DOCKERPROXY_IMAGE:-tecnativa/docker-socket-proxy:0.3.0}
     restart: unless-stopped
     environment:
       CONTAINERS: 1 # list/inspect/stats
-      POST: 1 # allow the restart POST (and nothing else mutating)
+      POST: ${DOCKERPROXY_POST:-0} # 0 = read-only (default); 1 = allow the restart POST (root-equivalent, see SECURITY.md)
     ports:
       - "127.0.0.1:2375:2375" # loopback only; dashboard reaches it via host networking
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Rootless podman has no /var/run/docker.sock: install.sh sets DOCKER_SOCKET_PATH in
+      # .env to your user socket (for example /run/user/1000/podman/podman.sock).
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro

@@ -1,20 +1,30 @@
-# TinkerView — guidance for Claude
+# TinkerView — guidance for AI coding assistants
 
-**Read `handoff.md` (repo root, gitignored) first** — it's the source of truth for
-project state, ops, deploy, and backlog.
+This repo is built with AI assistance (see "AI assistance" in `README.md`). This file
+is the context an assistant should load before changing anything.
 
-## MCP tool routing (two servers, namespaced — no collision)
-- **`mcp__graphify__*`** (`query_graph`, `get_node`, `get_neighbors`, `shortest_path`,
-  + PR-impact tools): use for questions about **this repo's structure** — symbols,
-  dependencies, call paths, "what calls X / what breaks if I change Y". Backed by a
-  per-repo knowledge graph at `graphify-out/graph.json` (gitignored, served via a
-  local-scope MCP). Rebuild after code changes:
-  - `graphify update .` — AST-only, fast, **free** (no LLM).
-  - `graphify extract . --backend=claude-cli` — full semantic rebuild on the **Claude
-    Max subscription** (no `ANTHROPIC_API_KEY`; set `GRAPHIFY_CLAUDE_CLI_MODEL=sonnet`).
-- **`mcp__openbrain__*`** (`search_thoughts`, `capture_thought`): use to recall/store
-  **cross-session, cross-project** decisions, gotchas, and rationale.
+If a private, gitignored `handoff.md` exists at the repo root, read it first — it holds
+the maintainer's local ops notes and backlog. It is never committed; do not copy its
+contents into tracked files.
 
-## Deploy (summary — details in handoff.md)
-Redeploy = rsync the repo to `root@tower.local:/mnt/user/appdata/webcamserver`
-(**must exclude tower-specific configs** — see handoff.md) then rebuild the dashboard.
+## Layout
+- `dashboard/` — Go backend (`cmd/dashboard`, `internal/**`) + React/Vite frontend (`dashboard/web`).
+- `frigate/` — `config.yml` example and `host-presets/<preset>.yml` hardware presets.
+- `compose.*.yml` — overlays on `docker-compose.yml` (hardware presets, bridge, tailscale, obico).
+
+## Gates (run before proposing a change)
+- Go (from `dashboard/`): `go vet ./... && go test -race ./...`
+- Frontend (from `dashboard/web/`): `npm run typecheck && npm run build`
+
+## Rules
+- Examples, tests, placeholders, and docs use generic values only (`192.168.1.x`,
+  `nas.local`, `192.0.2.10`). Never commit real LAN IPs, hostnames, credentials, or
+  ntfy topics.
+- Do not change the marker/section structure of `frigate/config.yml`; the installer and
+  README depend on it.
+- Never commit `.env`, `dashboard/config.yaml`, `dashboard/data/`, or tailscale node state.
+
+## Code-intelligence tooling (optional)
+If you use Mimir (`mcp__mimir__*`), its code graph answers structure questions
+("what calls X", "what breaks if I change Y") more cheaply than reading files. The
+older Graphify tooling is retired; `graphify-out/` is still gitignored.

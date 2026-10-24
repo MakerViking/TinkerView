@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 )
@@ -14,14 +15,41 @@ type TargetResolver interface {
 	PrinterTarget(id string) (baseURL, apiKey string, ok bool)
 }
 
+// moonrakerReadPaths are the only Moonraker endpoints the SPA reads through the
+// proxy. Everything else is refused: the proxy injects the printer's API key, so an
+// open path would hand dashboard users Moonraker's credential endpoints
+// (/access/api_key, /access/oneshot_token), config files and machine info.
+var moonrakerReadPaths = []string{
+	"/server/files/list",
+	"/server/files/metadata",
+	"/server/history/list",
+	"/server/history/totals",
+}
+
+// moonrakerPathAllowed reports whether a (prefix-stripped, cleaned) Moonraker path
+// may be proxied: an exact read endpoint, or a file under gcodes/ (thumbnails).
+func moonrakerPathAllowed(p string) bool {
+	if p != path.Clean(p) {
+		return false
+	}
+	for _, a := range moonrakerReadPaths {
+		if p == a {
+			return true
+		}
+	}
+	return strings.HasPrefix(p, "/server/files/gcodes/")
+}
+
 // PrinterProxy serves GET/HEAD /api/printers/{id}/moonraker/* by reverse-proxying to
 // that printer's Moonraker (injecting its X-Api-Key server-side), so the frontend can
 // browse files, thumbnails, metadata, and history same-origin (Moonraker CORS would
 // block a direct cross-origin fetch). It is READ-ONLY: state-changing actions go over
 // the authenticated WS Control path, never this proxy. Lives under /api/ so the bearer
 // auth applies; <img> thumbnails use the ?token= query fallback withAuth supports.
-func PrinterProxy(resolver TargetResolver) http.Handler {
-	var cache sync.Map // base+key -> *httputil.ReverseProxy
+// token is the dashboard's shared token ("" = none): it is stripped (with the
+// Authorization header and cookies) before forwarding to Moonraker.
+func PrinterProxy(resolver TargetResolver, token string) http.Handler {
+	var cache sync.Map // printer id -> *printerProxy
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -33,7 +61,7 @@ func PrinterProxy(resolver TargetResolver) http.Handler {
 			http.Error(w, "unknown printer", http.StatusNotFound)
 			return
 		}
-		rp, err := printerProxyFor(&cache, base, apiKey)
+		rp, err := printerProxyFor(&cache, id, base, apiKey, token)
 		if err != nil {
 			http.Error(w, "bad printer target", http.StatusBadGateway)
 			return
@@ -44,6 +72,10 @@ func PrinterProxy(resolver TargetResolver) http.Handler {
 		if !strings.HasPrefix(r.URL.Path, "/") {
 			r.URL.Path = "/" + r.URL.Path
 		}
+		if !moonrakerPathAllowed(r.URL.Path) {
+			http.Error(w, "not available through the dashboard", http.StatusForbidden)
+			return
+		}
 		// Clear RawPath so EscapedPath re-derives from the (stripped) Path — keeps
 		// percent-encoded filenames consistent after the prefix trim.
 		r.URL.RawPath = ""
@@ -51,10 +83,20 @@ func PrinterProxy(resolver TargetResolver) http.Handler {
 	})
 }
 
-func printerProxyFor(cache *sync.Map, base, apiKey string) (*httputil.ReverseProxy, error) {
-	key := base + "\x00" + apiKey
-	if v, ok := cache.Load(key); ok {
-		return v.(*httputil.ReverseProxy), nil
+// printerProxy is a cached reverse proxy plus the target it was built for.
+type printerProxy struct {
+	base, apiKey string
+	rp           *httputil.ReverseProxy
+}
+
+// printerProxyFor returns the proxy for a printer, rebuilding it when its base URL
+// or API key changed. Keyed by printer id (not base+key) so edits replace the entry
+// instead of leaking one per distinct value.
+func printerProxyFor(cache *sync.Map, id, base, apiKey, token string) (*httputil.ReverseProxy, error) {
+	if v, ok := cache.Load(id); ok {
+		if pp := v.(*printerProxy); pp.base == base && pp.apiKey == apiKey {
+			return pp.rp, nil
+		}
 	}
 	u, err := url.Parse(base)
 	if err != nil {
@@ -65,10 +107,15 @@ func printerProxyFor(cache *sync.Map, base, apiKey string) (*httputil.ReversePro
 	rp.Director = func(req *http.Request) {
 		orig(req)
 		req.Host = u.Host
+		// The dashboard's credentials are never meant for Moonraker.
+		stripCredentials(req, token)
+		req.Header.Del("Authorization")
+		req.Header.Del("Cookie")
 		if apiKey != "" {
 			req.Header.Set("X-Api-Key", apiKey)
 		}
 	}
-	cache.Store(key, rp)
+	rp.ErrorHandler = proxyErrorHandler(u.Redacted())
+	cache.Store(id, &printerProxy{base: base, apiKey: apiKey, rp: rp})
 	return rp, nil
 }

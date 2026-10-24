@@ -31,6 +31,21 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
+// responseStarted reports whether headers/body were already sent on w, looking
+// through Unwrap() wrappers to the logging recorder.
+func responseStarted(w http.ResponseWriter) bool {
+	for {
+		if sr, ok := w.(*statusRecorder); ok {
+			return sr.wrote
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return false
+		}
+		w = u.Unwrap()
+	}
+}
+
 // withLogging logs each request (2xx at debug to avoid spam, 4xx warn, 5xx error)
 // and recovers panics so one bad handler can't crash the process — the panic is
 // logged with a stack trace.

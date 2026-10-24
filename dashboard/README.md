@@ -31,10 +31,11 @@ vendor go2rtc's player for WebRTC — see `web/public/README.md`).
 ./dashboard/run-local.sh        # http://127.0.0.1:8088
 ```
 
-No Go? Install it without root first:
+Needs Go 1.25 or newer (`go.mod` says `go 1.25`) and Node 22. No Go? Download a
+release from <https://go.dev/dl/> and unpack it without root:
 
 ```sh
-curl -fsSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz | tar -C "$HOME/.local" -xz
+tar -C "$HOME/.local" -xzf go<version>.linux-amd64.tar.gz
 export PATH="$HOME/.local/go/bin:$PATH"
 ```
 
@@ -89,8 +90,9 @@ env: `DASHBOARD_TOKEN`, `DOCKER_HOST`, `NTFY_BASE_URL`, `NTFY_TOKEN`. Restart to
 - Designed for **Tailscale-only** access; auth is light by default. Set
   `DASHBOARD_TOKEN` to require a bearer token on the API + ntfy action buttons.
 - **No raw Docker socket.** The dashboard talks to **docker-socket-proxy**
-  (`CONTAINERS=1, POST=1` only); container restart is allow-listed to the
-  configured `watch` names.
+  (`CONTAINERS=1`; `POST=0` by default, so the health view is read-only and the
+  Restart button is off; `POST=1` enables restart but also permits container creation);
+  restart is allow-listed to the configured `watch` names.
 - Frigate `:5000`, go2rtc `:1984`, and Mosquitto are unauthenticated — never expose
   them publicly; the dashboard re-proxies their media behind its own origin.
 - Bambu control needs LAN + Developer Mode; until then the panel is read-only with

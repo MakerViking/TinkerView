@@ -5,6 +5,7 @@ import { chipCls } from './CameraSettingsModal'
 import { Button } from '@/components/ui'
 import { IconPlus, IconTrash } from '@/components/icons'
 import { cn } from '@/lib/utils'
+import { withToken } from '@/lib/auth'
 
 const OBJECT_OPTS = ['person', 'car', 'bicycle', 'motorcycle', 'truck', 'cat', 'dog', 'bird']
 const round3 = (n: number) => Math.round(n * 1000) / 1000
@@ -59,7 +60,7 @@ export function ZoneEditor({
             key={i}
             onClick={() => setSelected(i)}
             className={cn(
-              'rounded-md px-2 py-1 font-display text-xs font-medium tracking-wide transition-colors',
+              'rounded-md px-2 py-1 text-xs font-medium transition-colors',
               i === selected
                 ? 'bg-brand-500/15 text-brand-300 ring-1 ring-inset ring-brand-400/30'
                 : 'bg-ink-800 text-ink-300 hover:bg-ink-700',
@@ -75,12 +76,12 @@ export function ZoneEditor({
       </div>
 
       <div
-        className="relative w-full overflow-hidden rounded-xl border border-ink-800 bg-black"
+        className="relative w-full overflow-hidden rounded-md border border-ink-800 bg-black"
         style={{ aspectRatio: '16 / 9' }}
       >
         <img
           ref={imgRef}
-          src={`/go2rtc/api/frame.jpeg?src=${encodeURIComponent(cameraName)}`}
+          src={withToken(`/go2rtc/api/frame.jpeg?src=${encodeURIComponent(cameraName)}`)}
           alt={`Live frame of ${cameraName}`}
           draggable={false}
           onClick={onImgClick}
@@ -103,7 +104,7 @@ export function ZoneEditor({
       </div>
 
       {zone ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-ink-800 bg-ink-950/40 p-3">
+        <div className="flex flex-col gap-2 rounded-lg border border-ink-850 bg-ink-900 p-3">
           <div className="flex items-center gap-2">
             <input
               value={zone.name}

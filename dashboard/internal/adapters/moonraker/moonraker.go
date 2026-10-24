@@ -10,17 +10,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/MakerViking/TinkerView/internal/adapter"
 	"github.com/MakerViking/TinkerView/internal/adapters/printerutil"
 	"github.com/MakerViking/TinkerView/internal/bus"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 // defaultMacros is the safe set advertised when a printer has no curated macros
@@ -240,28 +241,59 @@ func (p *Printer) Run(ctx context.Context) {
 	}()
 
 	backoff := time.Second
+	lastErr := "" // last logged failure; repeats of it are demoted to Debug
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		err := p.session(ctx)
+		var upAt time.Time
+		err := p.session(ctx, func() {
+			upAt = time.Now()
+		})
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
-			slog.Warn("moonraker session ended", "printer", p.id, "err", err)
+			// Log the first failure (or a changed one) at WARN; an unreachable
+			// printer would otherwise warn every retry forever.
+			if msg := err.Error(); msg != lastErr {
+				slog.Warn("moonraker session ended", "printer", p.id, "err", err)
+				lastErr = msg
+			} else {
+				slog.Debug("moonraker session ended", "printer", p.id, "err", err)
+			}
 		}
 		p.setOffline()
+		// A session that stayed up for a while was healthy: retry fast next time
+		// instead of inheriting the backoff grown during an earlier outage. Only
+		// then is the failure memory cleared too, so a printer that flaps (connects,
+		// subscribes, drops with the same error) stays demoted to Debug.
+		if !upAt.IsZero() && time.Since(upAt) >= stableSession {
+			backoff = time.Second
+			if lastErr != "" {
+				slog.Info("moonraker reconnected", "printer", p.id)
+				lastErr = ""
+			}
+		}
+		wait := backoff + time.Duration(rand.Int64N(int64(backoff)/5+1)) // +0-20% jitter
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		}
 		backoff = min(backoff*2, 30*time.Second)
 	}
 }
 
-func (p *Printer) session(ctx context.Context) error {
+const (
+	stableSession = 30 * time.Second // a session this long resets the reconnect backoff
+	pingEvery     = 15 * time.Second // WS liveness probe interval
+	pingTimeout   = 10 * time.Second // an unanswered ping this long = dead connection
+)
+
+// session runs one WebSocket session until it fails. onUp is called once the
+// subscription is established.
+func (p *Printer) session(ctx context.Context, onUp func()) error {
 	dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	header := http.Header{}
 	if p.apiKey != "" {
@@ -279,12 +311,42 @@ func (p *Printer) session(ctx context.Context) error {
 	if err := p.subscribe(ctx, conn); err != nil {
 		return err
 	}
+	onUp()
+
+	// Liveness: a half-open TCP connection (printer power loss, Wi-Fi drop without a
+	// FIN/RST) never errors the read below, so ping periodically and abort the
+	// session when a ping goes unanswered (pongs are processed inside Read, so this
+	// starts only once the read loop is about to run).
+	sctx, abort := context.WithCancelCause(ctx)
+	defer abort(nil)
+	go func() {
+		t := time.NewTicker(pingEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-sctx.Done():
+				return
+			case <-t.C:
+				pctx, pcancel := context.WithTimeout(sctx, pingTimeout)
+				err := conn.Ping(pctx)
+				pcancel()
+				if err != nil && sctx.Err() == nil {
+					abort(fmt.Errorf("websocket ping failed: %w", err))
+					return
+				}
+			}
+		}
+	}()
+
 	for {
 		var msg rpcMsg
-		if err := wsjson.Read(ctx, conn, &msg); err != nil {
+		if err := wsjson.Read(sctx, conn, &msg); err != nil {
+			if c := context.Cause(sctx); c != nil && ctx.Err() == nil {
+				return c
+			}
 			return err
 		}
-		p.handle(ctx, conn, &msg)
+		p.handle(sctx, conn, &msg)
 	}
 }
 

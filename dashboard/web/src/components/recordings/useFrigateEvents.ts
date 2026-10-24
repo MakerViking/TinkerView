@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // A Frigate tracked-object event (subset of fields we use). Reached through the
 // dashboard's /frigate/ reverse proxy — no dashboard backend code involved.
@@ -41,25 +41,39 @@ export function frigateEventsUrl(f: EventFilters): string {
 export function useFrigateEvents(f: EventFilters) {
   const [data, setData] = useState<FrigateEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  // Starts true so the first paint is the skeleton, not the "No recordings" empty state.
+  const [loading, setLoading] = useState(true)
   const url = frigateEventsUrl(f)
+  // reqRef ids the latest request so a slower, older response can't overwrite a
+  // newer filter's data; dataUrlRef is the URL `data` belongs to.
+  const reqRef = useRef(0)
+  const dataUrlRef = useRef(url)
 
   const load = useCallback(async () => {
+    const req = ++reqRef.current
+    if (dataUrlRef.current !== url) {
+      dataUrlRef.current = url
+      setData(null) // filters changed: drop the previous filter's results
+    }
     setLoading(true)
     setError(null)
     try {
       const r = await fetch(url)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      setData((await r.json()) as FrigateEvent[])
+      const d = (await r.json()) as FrigateEvent[]
+      if (req === reqRef.current) setData(d)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (req === reqRef.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      if (req === reqRef.current) setLoading(false)
     }
   }, [url])
 
   useEffect(() => {
     load()
+    return () => {
+      reqRef.current++ // ignore anything still in flight after unmount / filter change
+    }
   }, [load])
 
   return { data, error, loading, reload: load }

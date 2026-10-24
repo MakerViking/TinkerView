@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Tailscale sidecar — exposes ONLY the dashboard (:8088) on your tailnet via
-# Tailscale Serve (private to the tailnet; NOT a public Funnel). Mirrors the
-# userspace-mode pattern of the existing openbrain-tailscale container.
+# Tailscale Serve (private to the tailnet; NOT a public Funnel). Uses Tailscale's
+# userspace mode.
 #
 # Setup:
 #   1) Generate a Tailscale auth key: admin console > Settings > Keys >
@@ -12,6 +12,8 @@
 #   2) Apply (add this overlay to the usual command):
 #        docker compose -f docker-compose.yml -f compose.nvidia.yml \
 #          -f compose.tailscale.yml --env-file .env up -d tailscale
+#   2b) Set DASHBOARD_TOKEN in .env too: anyone on your tailnet can reach the
+#      dashboard through this, so decide who that should be (ACLs) and gate it.
 #   3) The dashboard is then reachable from any device on your tailnet at
 #        https://tinkerview.<your-tailnet>.ts.net
 #
@@ -21,7 +23,7 @@
 # -----------------------------------------------------------------------------
 services:
   tailscale:
-    image: tailscale/tailscale:latest
+    image: ${TAILSCALE_IMAGE:-tailscale/tailscale:v1.104.2}
     container_name: tinkerview-tailscale
     hostname: tinkerview
     network_mode: host

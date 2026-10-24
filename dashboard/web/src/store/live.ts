@@ -17,6 +17,9 @@ interface LiveState {
   disks: DiskUsage[]
   frigateOnline: boolean
   alerts: Alert[]
+  // alertSeq counts alerts ever received (monotonic). The list is capped, so its
+  // length can't drive the unread badge; unread = alertSeq - the seen marker.
+  alertSeq: number
   dataWritable: boolean
   lastNotice?: { level: string; msg: string; ts: number }
   setConnected: (b: boolean) => void
@@ -31,6 +34,7 @@ export const useLive = create<LiveState>((set) => ({
   disks: [],
   frigateOnline: false,
   alerts: [],
+  alertSeq: 0,
   dataWritable: true,
   setConnected: (b) => set({ connected: b }),
   applyServerMsg: (m) => set((s) => reduce(s, m)),
@@ -47,6 +51,11 @@ function reduce(s: LiveState, m: ServerMsg): Partial<LiveState> {
         disks: d.disks ?? [],
         frigateOnline: d.frigateOnline,
         alerts: d.alerts ?? [],
+        // Only alerts we haven't already counted are new (a reconnect snapshot
+        // re-sends the whole list).
+        alertSeq:
+          s.alertSeq +
+          (d.alerts ?? []).filter((a) => !s.alerts.some((o) => o.id === a.id)).length,
         dataWritable: d.dataWritable !== false, // undefined (older server) → assume writable
       }
     }
@@ -73,7 +82,10 @@ function reduce(s: LiveState, m: ServerMsg): Partial<LiveState> {
     case 'frigate':
       return { frigateOnline: m.data.online }
     case 'alert':
-      return { alerts: [m.data, ...s.alerts].slice(0, 100) }
+      if (s.alerts.some((a) => a.id === m.data.id)) return {}
+      return { alerts: [m.data, ...s.alerts].slice(0, 100), alertSeq: s.alertSeq + 1 }
+    case 'pong':
+      return {}
     case 'notice':
       return { lastNotice: { level: m.level, msg: m.msg, ts: Date.now() } }
     default:

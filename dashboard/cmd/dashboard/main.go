@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,20 +40,33 @@ var Version = "dev"
 var logFile *os.File
 
 func main() {
+	// serve returns the exit code so its defers (log file, signal handler) run
+	// before the process exits; os.Exit inside it would skip them.
+	os.Exit(serve())
+}
+
+func serve() int {
 	var configPath string
 	flag.StringVar(&configPath, "config", "", "path to config.yaml (default: <data_dir>/config.yaml, else the legacy /config.yaml mount)")
+	var doHealthcheck bool
+	flag.BoolVar(&doHealthcheck, "healthcheck", false, "probe the running dashboard's /healthz and exit 0 (healthy) or 1; used by the container HEALTHCHECK")
 	flag.Parse()
+
+	if doHealthcheck {
+		return healthcheck(configPath)
+	}
 
 	configPath = config.Resolve(configPath)
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		slog.Error("load config", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	setupLogging(cfg)
 	if logFile != nil {
 		defer logFile.Close()
 	}
+	warnIfOpen(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -63,18 +77,25 @@ func main() {
 	// Defined up front because the device manager launches adapter goroutines
 	// through it (at startup and at runtime when devices are added from the UI).
 	var wg sync.WaitGroup
-	run := func(name string, fn func(context.Context)) {
+	var fatal atomic.Bool // a critical goroutine panicked: exit non-zero so the supervisor restarts us
+	launch := func(name string, critical bool, fn func(context.Context)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("goroutine panic recovered", "name", name, "recover", r)
+					if critical {
+						// Staying up with a dead hub would serve frozen tiles silently.
+						fatal.Store(true)
+						stop()
+					}
 				}
 			}()
 			fn(ctx)
 		}()
 	}
+	run := func(name string, fn func(context.Context)) { launch(name, false, fn) }
 
 	// --- writable device store (UI-managed printers/cameras + Frigate backups) ---
 	// UI changes persist here rather than in config.yaml, which is never written.
@@ -86,7 +107,7 @@ func main() {
 	store, err := devices.Open(filepath.Join(cfg.DataDir, "devices.yaml"))
 	if err != nil {
 		slog.Error("open device store", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	// First run: import the static config.yaml printers into the store so they
 	// become editable/removable from the UI. Thereafter the store is authoritative.
@@ -125,10 +146,12 @@ func main() {
 	// Notification rules: prioritize/suppress Frigate detections (known/unknown
 	// face/plate + zone + time of day → push/silent/ignore). Seeded with sensible
 	// defaults on first run; editable from the Recognition tab.
+	// An unwritable data dir is not fatal (it falls back to in-memory defaults);
+	// only a malformed existing file is.
 	ruleStore, err := rules.Open(filepath.Join(cfg.DataDir, "notify-rules.json"))
 	if err != nil {
 		slog.Error("open notification rules", "err", err)
-		os.Exit(1)
+		return 1
 	}
 	extraRunners = append(extraRunners, automation.New(b, notifier, ruleStore).Run)
 
@@ -161,6 +184,18 @@ func main() {
 	cmd := &commandRouter{printers: mgr, cameras: cameraMgr, docker: dockerSrc, frigate: frigateAdapter}
 	h := hub.New(b, cmd, cfg.Auth.Token)
 	h.SetDataWritable(dataWritable)
+	// WS handshakes are same-origin only; this adds extra allowed Origin hosts
+	// (comma-separated patterns, e.g. "localhost:5173") for dev or odd proxies.
+	if v := os.Getenv("DASHBOARD_WS_ORIGINS"); v != "" {
+		var pats []string
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				pats = append(pats, p)
+			}
+		}
+		h.SetAllowedOrigins(pats)
+		slog.Info("extra websocket origins allowed", "DASHBOARD_WS_ORIGINS", pats)
+	}
 	// cameraMgr edits Frigate's global config (known plates + detection hardware)
 	// only when Frigate config editing is available; nil otherwise so the API
 	// reports those endpoints as unavailable.
@@ -169,16 +204,17 @@ func main() {
 		frigCfgMgr = cameraMgr
 	}
 	api := web.NewAPI(Version, h, cmd, notifier, frigCfgMgr, ruleStore)
+	api.SetDevices(mgr, cameraMgr)
 
 	router, err := web.Router(cfg, h, api, mgr)
 	if err != nil {
 		slog.Error("build router", "err", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// --- start goroutines ---
 	// Start the hub first so it captures adapter state as printers come up.
-	run("hub", h.Run)
+	launch("hub", true, h.Run)
 	for _, r := range store.Printers() {
 		if err := mgr.RestorePrinter(r); err != nil { // launches the adapter via run()
 			slog.Warn("restore printer", "id", r.ID, "err", err)
@@ -198,7 +234,9 @@ func main() {
 
 	// --- HTTP server ---
 	srv := &http.Server{Addr: cfg.Listen, Handler: router, ReadHeaderTimeout: 10 * time.Second}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -208,13 +246,23 @@ func main() {
 	}()
 
 	slog.Info("dashboard listening", "addr", cfg.Listen, "version", Version)
+	exitCode := 0
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("http server", "err", err)
+		slog.Error("http server", "err", err) // e.g. port in use
+		exitCode = 1
 	}
 
-	stop()    // ensure all goroutines see cancellation
-	wg.Wait() // graceful drain
+	stop()         // ensure all goroutines see cancellation
+	<-shutdownDone // let in-flight requests drain
+	wg.Wait()      // graceful drain
+	if fatal.Load() {
+		exitCode = 1
+	}
 	slog.Info("shutdown complete")
+	if exitCode != 0 {
+		return exitCode
+	}
+	return 0
 }
 
 // commandRouter implements hub.CommandHandler by delegating to the printer manager
@@ -349,7 +397,7 @@ func setupLogging(cfg *config.Config) {
 		if err != nil {
 			slog.Error("cannot open log file; logging to stdout only", "file", cfg.Log.File, "err", err)
 		} else {
-			logFile = f // closed in main via defer
+			logFile = f // closed in serve via defer
 			w = io.MultiWriter(os.Stdout, f)
 		}
 	}

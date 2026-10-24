@@ -88,20 +88,20 @@ type Printer struct {
 	dNC        uint64
 	dHave      bool
 
-	mu         sync.Mutex
-	apiMode    string // "" (undetected) | "v1" (/api/v1 Digest) | "legacy" (/api/printer X-Api-Key)
-	v1TempsBad bool   // sticky: this printer's /api/v1 temp_nozzle is bogus; read temps from legacy
-	online     bool
-	offlineMsg string
-	pstate     adapter.PState
-	nozzle     adapter.Heater
-	bed        adapter.Heater
+	mu          sync.Mutex
+	apiMode     string // "" (undetected) | "v1" (/api/v1 Digest) | "legacy" (/api/printer X-Api-Key)
+	v1TempsBad  bool   // sticky: this printer's /api/v1 temp_nozzle is bogus; read temps from legacy
+	online      bool
+	offlineMsg  string
+	pstate      adapter.PState
+	nozzle      adapter.Heater
+	bed         adapter.Heater
 	progressPct float64
-	etaSec     int
-	elapsedSec int
-	jobID      int
-	lastJobID  int // job id whose filename is cached (avoid re-fetching /job each poll)
-	filename   string
+	etaSec      int
+	elapsedSec  int
+	jobID       int
+	lastJobID   int // job id whose filename is cached (avoid re-fetching /job each poll)
+	filename    string
 }
 
 func New(b *bus.Bus, id, name, baseURL, apiKey, camera, uiURL string, managed bool, _ []string) *Printer {

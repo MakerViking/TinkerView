@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/MakerViking/TinkerView/internal/adapter"
 	"github.com/MakerViking/TinkerView/internal/bus"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type Adapter struct {
@@ -62,9 +62,15 @@ func (a *Adapter) Run(ctx context.Context) {
 	a.mu.Unlock()
 	defer cl.Disconnect(200)
 
-	if t := cl.Connect(); t.Wait() && t.Error() != nil {
-		slog.Error("frigate: initial mqtt connect failed (will retry)", "err", t.Error())
-	}
+	// Do not block on the connect token: with ConnectRetry it only completes once the
+	// broker is reachable, so waiting here would make shutdown hang (until SIGKILL)
+	// whenever Mosquitto is down.
+	t := cl.Connect()
+	go func() {
+		if t.Wait() && t.Error() != nil {
+			slog.Error("frigate: initial mqtt connect failed (will retry)", "err", t.Error())
+		}
+	}()
 
 	// Periodically re-fetch /api/config so record ceilings recover from a slow
 	// Frigate start and pick up mid-session config changes.

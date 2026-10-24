@@ -4,3 +4,8 @@ internal/web/dist
 config.yaml
 *.md
 .git
+bin
+data
+dev
+.env
+*.env

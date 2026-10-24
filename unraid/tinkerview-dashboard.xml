@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>TinkerView</Name>
+  <Repository>ghcr.io/makerviking/tinkerview:latest</Repository>
+  <Registry>https://github.com/MakerViking/TinkerView/pkgs/container/tinkerview</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/MakerViking/TinkerView/issues</Support>
+  <Project>https://github.com/MakerViking/TinkerView</Project>
+  <Overview>TinkerView dashboard only: one pane for your cameras and 3D printers, container health and push alerts. Use this template if you already run Frigate (with its bundled go2rtc) and want just the dashboard. For the whole stack (Frigate, Mosquitto, ntfy and the dashboard) use the Docker Compose Manager route in unraid/README.md instead.&#13;
+&#13;
+Needs: Frigate reachable on port 5000 and go2rtc on port 1984 (edit config.yaml in the data folder if they live elsewhere). Optional: a docker-socket-proxy for the container health panel, and an ntfy server for notifications.&#13;
+&#13;
+FIRST RUN: the data folder must be writable by uid 65532. In the Unraid terminal run:  mkdir -p /mnt/user/appdata/tinkerview/data &amp;&amp; chown 65532:65532 /mnt/user/appdata/tinkerview/data</Overview>
+  <Category>HomeAutomation: Tools: Status:Other</Category>
+  <WebUI>http://[IP]:[PORT:8088]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/MakerViking/TinkerView/main/unraid/tinkerview-dashboard.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/MakerViking/TinkerView/main/unraid/tinkerview-icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText>TinkerView is free and open source (AGPL-3.0). If it is useful to you, you can support its development.</DonateText>
+  <DonateLink>https://paypal.me/makerviking</DonateLink>
+  <Requires>A running Frigate (port 5000) with go2rtc (port 1984) on this server or your network. Create the data folder first (see Overview).</Requires>
+  <Config Name="WebUI port" Target="8088" Default="8088" Mode="tcp" Description="The dashboard listens here (host network). To change it, also set the Listen address variable below to the same port." Type="Port" Display="always" Required="true" Mask="false">8088</Config>
+  <Config Name="Data (config, devices, backups)" Target="/data" Default="/mnt/user/appdata/tinkerview/data" Mode="rw" Description="Holds config.yaml, UI-added printers/cameras (devices.yaml) and Frigate config backups. The folder must be owned by uid 65532 (chown 65532:65532)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/tinkerview/data</Config>
+  <Config Name="Recordings (read-only, for disk usage)" Target="/media/frigate" Default="" Mode="ro" Description="Optional. Your Frigate media folder, mounted read-only so the dashboard can show recording disk usage (for example /mnt/user/frigate)." Type="Path" Display="always" Required="false" Mask="false"/>
+  <Config Name="Access token" Target="DASHBOARD_TOKEN" Default="" Mode="" Description="Required. Without a token anyone on your network can control the dashboard. Use a long random value, for example the output of: openssl rand -hex 24. Open the dashboard once as http://[IP]:8088/?token=YOUR_TOKEN and the browser remembers it." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Docker proxy (container health)" Target="DOCKER_HOST" Default="tcp://127.0.0.1:2375" Mode="" Description="Address of a docker-socket-proxy (tecnativa/docker-socket-proxy with CONTAINERS=1; POST=0 gives a read-only health view, POST=1 also enables the Restart button but is root-equivalent, see SECURITY.md). Never point this at the raw docker.sock. No proxy? Set docker.enabled to false in config.yaml." Type="Variable" Display="always" Required="false" Mask="false">tcp://127.0.0.1:2375</Config>
+  <Config Name="ntfy server URL" Target="NTFY_BASE_URL" Default="http://127.0.0.1:8092" Mode="" Description="Base URL of your ntfy server, for push notifications. Ignored if you do not use ntfy." Type="Variable" Display="always" Required="false" Mask="false">http://127.0.0.1:8092</Config>
+  <Config Name="ntfy publish token" Target="NTFY_TOKEN" Default="" Mode="" Description="Optional ntfy access token the dashboard publishes with." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Mode="" Description="Your timezone, for example Europe/London or America/New_York." Type="Variable" Display="always" Required="false" Mask="false">UTC</Config>
+  <Config Name="Listen address" Target="DASHBOARD_LISTEN" Default=":8088" Mode="" Description="Address the dashboard binds. Change the port here AND in the WebUI port setting above." Type="Variable" Display="advanced" Required="false" Mask="false">:8088</Config>
+  <Config Name="Log level" Target="DASHBOARD_LOG_LEVEL" Default="info" Mode="" Description="debug, info, warn or error." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+</Container>

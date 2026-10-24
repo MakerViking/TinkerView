@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { inputCls } from '@/components/devices/forms'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { Button, Card, EmptyState, Notice } from '@/components/ui'
+import { Button, Card, EmptyState, Notice, Skeleton } from '@/components/ui'
+import { withToken } from '@/lib/auth'
 import { IconScanFace, IconUpload, IconX } from '@/components/icons'
 
 // Faces are managed directly through Frigate's API via the dashboard's /frigate/
@@ -11,7 +12,7 @@ type FaceMap = Record<string, string[]>
 
 const FACES_API = '/frigate/api/faces'
 const faceImg = (name: string, file: string) =>
-  `/frigate/clips/faces/${encodeURIComponent(name)}/${encodeURIComponent(file)}`
+  withToken(`/frigate/clips/faces/${encodeURIComponent(name)}/${encodeURIComponent(file)}`)
 
 // toJpeg decodes an uploaded image with the browser (honoring EXIF orientation —
 // important so a sideways phone photo's face is upright) and re-encodes it as a
@@ -112,14 +113,14 @@ export function FacesPanel() {
   const names = faces ? Object.keys(faces).sort() : []
   return (
     <div className="flex flex-col gap-4">
-      <p className="max-w-2xl text-xs leading-relaxed text-ink-500">
+      <p className="max-w-2xl text-sm leading-relaxed text-ink-400">
         Teach Frigate which faces are known. Recognized people appear by name on detections and can be
         prioritized (or silenced) under <span className="text-ink-200">Notification rules</span>. Upload a
         few clear, well-lit shots per person from different angles.
       </p>
       <div className="flex items-end gap-2">
         <label className="block max-w-xs flex-1">
-          <span className="font-display text-[11px] font-medium uppercase tracking-[0.08em] text-ink-400">
+          <span className="text-[13px] font-medium text-ink-200">
             Add a person
           </span>
           <input
@@ -137,7 +138,21 @@ export function FacesPanel() {
 
       {error && <Notice tone="error">{error}</Notice>}
 
-      {names.length === 0 ? (
+      {faces === null ? (
+        // Not loaded yet (or the load failed): never claim nothing is enrolled.
+        error ? (
+          <div>
+            <Button size="xs" variant="outline" onClick={load}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(260px,1fr))]" aria-label="Loading faces">
+            <Skeleton className="h-40" />
+            <Skeleton className="h-40" />
+          </div>
+        )
+      ) : names.length === 0 ? (
         <EmptyState
           icon={<IconScanFace />}
           title="No faces enrolled yet"
@@ -235,8 +250,8 @@ function PersonCard({
   return (
     <Card className="p-3.5">
       <div className="flex items-center gap-2">
-        <span className="font-display font-semibold text-ink-50">{name}</span>
-        <span className="font-mono text-[11px] text-ink-500">
+        <span className="font-semibold text-ink-50">{name}</span>
+        <span className="font-mono text-[12px] text-ink-500">
           {files.length} image{files.length === 1 ? '' : 's'}
         </span>
         <button
@@ -263,7 +278,7 @@ function PersonCard({
                 title="Delete image"
                 aria-label={`Delete image of ${name}`}
               >
-                <IconX className="text-[10px]" />
+                <IconX className="text-[12px]" />
               </button>
             </div>
           ))}
@@ -272,7 +287,7 @@ function PersonCard({
       <button
         onClick={() => fileRef.current?.click()}
         disabled={busy}
-        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink-600 px-2 py-2 text-xs text-ink-400 transition-colors hover:border-brand-500 hover:text-brand-300 disabled:opacity-50"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink-600 px-2 py-2 text-xs text-ink-400 transition-colors hover:border-brand-500 hover:text-brand-400 disabled:opacity-50"
       >
         <IconUpload className="text-[13px]" />
         {busy ? 'Uploading…' : 'Upload face image(s)'}

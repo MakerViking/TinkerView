@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { withToken } from '@/lib/auth'
 
 // moonrakerUrl builds a same-origin URL through the dashboard's read-only
@@ -15,24 +15,44 @@ export function useMoonraker<T>(id: string, path: string | null) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // reqRef ids the latest request so a stale response is ignored; keyRef is the
+  // id/path `data` belongs to.
+  const reqRef = useRef(0)
+  const keyRef = useRef(`${id}|${path}`)
 
   const load = useCallback(async () => {
-    if (!path) return
+    const req = ++reqRef.current
+    const key = `${id}|${path}`
+    if (keyRef.current !== key) {
+      keyRef.current = key
+      setData(null) // different printer/path: don't show the previous one's data
+    }
+    if (!path) {
+      // The cleanup bumped reqRef, so any in-flight request's finally is ignored;
+      // reset here or loading/error would stick for the null path.
+      setLoading(false)
+      setError(null)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const r = await fetch(moonrakerUrl(id, path))
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      setData((await r.json()) as T)
+      const d = (await r.json()) as T
+      if (req === reqRef.current) setData(d)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (req === reqRef.current) setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setLoading(false)
+      if (req === reqRef.current) setLoading(false)
     }
   }, [id, path])
 
   useEffect(() => {
     load()
+    return () => {
+      reqRef.current++
+    }
   }, [load])
 
   return { data, error, loading, reload: load }

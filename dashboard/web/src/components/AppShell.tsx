@@ -41,6 +41,8 @@ const TABS: TabDef[] = [
   { id: 'alerts', label: 'Notifications', short: 'Alerts', icon: IconBell, group: 3 },
 ]
 
+export const TAB_IDS: readonly Tab[] = TABS.map((t) => t.id)
+
 export function AppShell({
   tab,
   onTab,
@@ -60,28 +62,16 @@ export function AppShell({
 
   return (
     <div className="min-h-full flex flex-col">
-      <header className="sticky top-0 z-20 border-b border-ink-800/80 bg-ink-950/80 backdrop-blur-md">
-        <div className="flex h-14 items-center gap-4 px-4">
-          <span className="flex items-center gap-2.5 whitespace-nowrap">
-            <Mark className="h-7 w-7 shrink-0" />
-            <span className="flex flex-col leading-none">
-              <span className="flex items-baseline gap-1.5">
-                <span className="font-display text-[15px] font-bold tracking-wide text-ink-50">
-                  TinkerView
-                </span>
-                {version && (
-                  <span
-                    className="hidden font-mono text-[10px] text-ink-500 sm:inline"
-                    title="running version"
-                  >
-                    {/^\d/.test(version) ? `v${version}` : version}
-                  </span>
-                )}
+      <header className="sticky top-0 z-20 border-b border-ink-850 bg-ink-950/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-[1800px] items-center gap-6 px-4 md:px-6">
+          <span className="flex items-center gap-2 whitespace-nowrap">
+            <Mark className="h-6 w-6 shrink-0" />
+            <span className="text-[15px] font-semibold tracking-tight text-ink-50">TinkerView</span>
+            {version && (
+              <span className="hidden font-mono text-[11px] text-ink-500 sm:inline" title="running version">
+                {/^\d/.test(version) ? `v${version}` : version}
               </span>
-              <span className="mt-0.5 font-display text-[9px] font-medium uppercase tracking-[0.18em] text-ink-500">
-                Cameras + 3D printers
-              </span>
-            </span>
+            )}
           </span>
 
           {/* Desktop nav: grouped — NVR · workshop · AI · system. */}
@@ -91,19 +81,17 @@ export function AppShell({
               const newGroup = i > 0 && TABS[i - 1].group !== t.group
               return (
                 <span key={t.id} className="flex items-center">
-                  {newGroup && <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-ink-800" />}
+                  {newGroup && <span aria-hidden="true" className="mx-2 h-3.5 w-px bg-ink-800" />}
                   <button
                     onClick={() => onTab(t.id)}
                     aria-current={tab === t.id ? 'page' : undefined}
                     title={t.label}
                     className={cn(
-                      'flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-display text-[13px] font-medium tracking-wide transition-colors',
-                      tab === t.id
-                        ? 'bg-brand-500/12 text-brand-300 shadow-[inset_0_0_0_1px_rgb(56_189_248/0.2)]'
-                        : 'text-ink-400 hover:bg-ink-850 hover:text-ink-100',
+                      'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors',
+                      tab === t.id ? 'bg-ink-850 text-ink-50' : 'text-ink-400 hover:text-ink-100',
                     )}
                   >
-                    <Icon className="text-[15px]" />
+                    <Icon className={cn('text-[15px]', tab === t.id && 'text-brand-400')} />
                     <span className="hidden lg:inline">{t.label}</span>
                   </button>
                 </span>
@@ -111,7 +99,7 @@ export function AppShell({
             })}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-3">
             <NotificationBell tab={tab} onTab={onTab} />
             <ConnectionStatusBadge />
           </div>
@@ -119,12 +107,12 @@ export function AppShell({
       </header>
 
       <DataDirBanner />
-      <main className="flex-1 p-4 pb-24 md:pb-6">{children}</main>
+      <main className="mx-auto w-full max-w-[1800px] flex-1 px-4 pb-24 pt-5 md:px-6 md:pb-8">{children}</main>
 
       {/* Phone: bottom tab bar (thumb-reachable). */}
       <nav
         aria-label="Sections"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-ink-800/80 bg-ink-950/90 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-ink-850 bg-ink-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         <div className="grid grid-cols-7">
           {TABS.map((t) => {
@@ -136,24 +124,15 @@ export function AppShell({
                 onClick={() => onTab(t.id)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex flex-col items-center gap-1 py-2 transition-colors',
-                  active ? 'text-brand-300' : 'text-ink-500 active:text-ink-300',
+                  'flex flex-col items-center gap-1 pb-2 pt-2.5 transition-colors',
+                  active ? 'text-ink-50' : 'text-ink-500 active:text-ink-300',
                 )}
               >
                 <span className="relative">
-                  <Icon className="text-[19px]" />
+                  <Icon className={cn('text-[19px]', active && 'text-brand-400')} />
                   {t.id === 'alerts' && <UnreadDot tab={tab} />}
                 </span>
-                <span className="font-display text-[9px] font-medium uppercase tracking-wide">
-                  {t.short ?? t.label}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    'h-0.5 w-6 rounded-full transition-colors',
-                    active ? 'bg-brand-400' : 'bg-transparent',
-                  )}
-                />
+                <span className="text-[10px] font-medium">{t.short ?? t.label}</span>
               </button>
             )
           })}
@@ -167,21 +146,21 @@ export function AppShell({
 
 // UnreadDot marks the bottom-nav Alerts item when new detections arrived.
 function UnreadDot({ tab }: { tab: Tab }) {
-  const count = useLive((s) => s.alerts.length)
+  const count = useLive((s) => s.alertSeq)
   const [seen, setSeen] = useState(0)
   useEffect(() => {
     if (tab === 'alerts') setSeen(count)
   }, [tab, count])
   if (count - seen <= 0) return null
   return (
-    <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-rec ring-2 ring-ink-950" />
+    <span className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-brand-400 ring-2 ring-ink-950" />
   )
 }
 
 // NotificationBell opens the Notifications view and badges how many detections
 // arrived since it was last viewed.
 function NotificationBell({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
-  const count = useLive((s) => s.alerts.length)
+  const count = useLive((s) => s.alertSeq)
   const [seen, setSeen] = useState(0)
   useEffect(() => {
     if (tab === 'alerts') setSeen(count)
@@ -193,15 +172,13 @@ function NotificationBell({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void })
       aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
       title="Notifications"
       className={cn(
-        'relative grid h-8 w-8 place-items-center rounded-lg transition-colors',
-        tab === 'alerts'
-          ? 'bg-brand-500/12 text-brand-300'
-          : 'text-ink-400 hover:bg-ink-850 hover:text-ink-100',
+        'relative grid h-8 w-8 place-items-center rounded-md transition-colors',
+        tab === 'alerts' ? 'bg-ink-850 text-ink-50' : 'text-ink-400 hover:text-ink-100',
       )}
     >
       <IconBell className="text-[17px]" />
       {unread > 0 && (
-        <span className="absolute -right-1 -top-1 min-w-[1rem] rounded-full bg-rec px-1 font-mono text-[10px] font-semibold leading-4 text-white">
+        <span className="absolute -right-1.5 -top-1 min-w-[1.1rem] rounded-full bg-brand-400 px-1 text-center font-mono text-[10px] font-medium leading-4 text-ink-1000">
           {unread > 99 ? '99+' : unread}
         </span>
       )}
@@ -253,14 +230,14 @@ function NoticeToast() {
       ? 'border-rose-500/40 bg-rose-950/95 text-rose-100'
       : notice.level === 'warn'
         ? 'border-amber-500/40 bg-amber-950/95 text-amber-100'
-        : 'border-ink-700 bg-ink-850/95 text-ink-100'
+        : 'border-ink-800 bg-ink-900 text-ink-100'
   const barTone =
-    notice.level === 'error' ? 'bg-rec' : notice.level === 'warn' ? 'bg-amber-400' : 'bg-brand-400'
+    notice.level === 'error' ? 'bg-rec' : notice.level === 'warn' ? 'bg-brand-400' : 'bg-ink-500'
   return (
     <div
       role="status"
       className={cn(
-        'fixed bottom-20 right-4 z-50 flex max-w-sm items-start gap-3 overflow-hidden rounded-xl border py-3 pl-4 pr-2 text-sm shadow-pop backdrop-blur animate-rise md:bottom-4',
+        'fixed bottom-20 right-4 z-50 flex max-w-sm items-start gap-3 overflow-hidden rounded-lg border py-3 pl-4 pr-2 text-sm shadow-pop animate-rise md:bottom-4',
         tone,
       )}
     >

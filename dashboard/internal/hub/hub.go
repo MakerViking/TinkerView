@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"maps"
@@ -52,6 +53,9 @@ type Hub struct {
 	bus   *bus.Bus
 	cmd   CommandHandler
 	token string
+	// originPatterns are extra Origin host patterns (path.Match style) accepted on
+	// the WS handshake besides the request's own Host. See SetAllowedOrigins.
+	originPatterns []string
 
 	mu                sync.RWMutex
 	clients           map[*client]struct{}
@@ -212,16 +216,19 @@ type CameraStatus struct {
 
 // ServeWS upgrades the request and serves one client until it disconnects.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	if h.token != "" && r.URL.Query().Get("token") != h.token {
+	if h.token != "" && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(h.token)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Reached over the tailnet from the dashboard origin; same-origin check
-		// is unnecessary and would block the SPA served from a different port in dev.
-		InsecureSkipVerify: true,
-	})
+	// Origin is verified: a browser Origin must match the request Host (same-origin;
+	// the reverse proxy preserves Host) or an operator-allowed pattern. Without this
+	// any web page could open /ws from the user's browser (cross-site WS hijacking).
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: h.originPatterns})
 	if err != nil {
+		// Accept already replied (403 on a bad Origin); log why so a proxy that
+		// rewrites Host is diagnosable (fix: DASHBOARD_WS_ORIGINS).
+		slog.Warn("hub: websocket handshake rejected", "err", err,
+			"origin", r.Header.Get("Origin"), "host", r.Host)
 		return
 	}
 	c := &client{hub: h, conn: conn, send: make(chan []byte, 64), done: make(chan struct{})}
@@ -229,12 +236,20 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	h.clients[c] = struct{}{}
 	h.mu.Unlock()
 
+	defer h.removeClient(c)
+
 	c.send <- h.snapshotBytes() // initial full state
 
 	ctx := r.Context()
 	go c.writeLoop(ctx)
 	c.readLoop(ctx) // blocks until the conn closes
-	h.removeClient(c)
+}
+
+// SetAllowedOrigins sets extra Origin host patterns (e.g. "localhost:5173",
+// "*.example.com") accepted on the WS handshake in addition to same-host. Call
+// before serving. For a dev server or a proxy that rewrites Host.
+func (h *Hub) SetAllowedOrigins(patterns []string) {
+	h.originPatterns = patterns
 }
 
 // Snapshot returns a deep-enough copy of the current cached state (for the WS
@@ -293,8 +308,7 @@ func (h *Hub) removeClient(c *client) {
 	h.mu.Lock()
 	if _, ok := h.clients[c]; ok {
 		delete(h.clients, c)
-		close(c.done) // signal readLoop to stop sending before we close send
-		close(c.send)
+		close(c.done) // stops writeLoop (which closes the conn); c.send is never closed
 	}
 	h.mu.Unlock()
 }

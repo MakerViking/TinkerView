@@ -18,9 +18,9 @@ const ROTATIONS = [0, 90, 180, 270]
 // Chip toggle for tracked-object selection.
 export function chipCls(on: boolean): string {
   return cn(
-    'rounded-md px-2 py-1 font-display text-xs font-medium tracking-wide transition-colors',
+    'rounded-md px-2 py-1 text-xs font-medium transition-colors',
     on
-      ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30'
+      ? 'bg-ink-800 text-ink-50'
       : 'bg-ink-800 text-ink-400 hover:bg-ink-700 hover:text-ink-200',
   )
 }
@@ -116,7 +116,7 @@ export function CameraSettingsModal({
       <Row label="Flip vertical" hint="Mirror top ↔ bottom">
         <Switch on={flipV} onChange={setFlipV} label="Flip vertical" />
       </Row>
-      <p className="-mt-1 text-[11px] text-ink-500">
+      <p className="-mt-1 text-[12px] text-ink-500">
         Rotate/flip re-encodes the stream (an ffmpeg transcode), so it applies to the live view and
         recordings alike.
       </p>
@@ -201,7 +201,7 @@ export function CameraSettingsModal({
               )}
 
               <div className="border-t border-ink-800 pt-3">
-                <div className="mb-1 font-display text-xs font-semibold uppercase tracking-wide text-ink-400">
+                <div className="mb-1.5 text-[13px] font-medium text-ink-200">
                   Image
                 </div>
                 {imageSection}
@@ -210,7 +210,7 @@ export function CameraSettingsModal({
           )}
 
           <Actions onCancel={onClose} submitLabel="Save & apply" />
-          <p className="-mt-2 text-right text-[11px] text-ink-500">
+          <p className="-mt-2 text-right text-[12px] text-ink-500">
             {imageOnly
               ? 'Applying restarts Frigate (~25s) for recorded cameras.'
               : record
@@ -225,10 +225,10 @@ export function CameraSettingsModal({
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-ink-800 bg-ink-950/40 px-3.5 py-2.5">
+    <div className="flex items-center gap-3 rounded-lg border border-ink-850 bg-ink-900 px-3.5 py-2.5">
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-100">{label}</div>
-        {hint && <div className="text-[11px] text-ink-500">{hint}</div>}
+        {hint && <div className="text-[12px] text-ink-500">{hint}</div>}
       </div>
       <div className="ml-auto">{children}</div>
     </div>

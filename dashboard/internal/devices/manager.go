@@ -32,16 +32,55 @@ type Manager struct {
 	mu       sync.Mutex
 	printers map[string]adapter.Printer
 	cancels  map[string]context.CancelFunc
+	// done[id] is closed when printer id's adapter goroutine has returned, so an
+	// edit can wait for the old adapter before starting its replacement.
+	done map[string]chan struct{}
 }
+
+// adapterStopWait bounds how long EditPrinter waits for a cancelled adapter to
+// exit before starting its replacement (an adapter stuck in blocking I/O must
+// not wedge the edit).
+const adapterStopWait = 2 * time.Second
 
 // NewManager builds a Manager. parentCtx is the process root context; every
 // printer goroutine derives a child from it, so the existing stop()/wg.Wait()
 // shutdown drains runtime-added printers too.
 func NewManager(parentCtx context.Context, b *bus.Bus, store *Store, run RunFn) *Manager {
-	return &Manager{
+	m := &Manager{
 		bus: b, store: store, run: run, parentCtx: parentCtx,
 		printers: map[string]adapter.Printer{},
 		cancels:  map[string]context.CancelFunc{},
+		done:     map[string]chan struct{}{},
+	}
+	// A camera rename/delete rewrites printers' camera reference in the store;
+	// reload the affected live adapters so they pick up the new name.
+	store.SetPrinterRefHook(m.reloadPrinters)
+	return m
+}
+
+// PrinterRecord returns the stored (unredacted) record for id. Callers that
+// serve it to clients must use PrinterRecord.View().
+func (m *Manager) PrinterRecord(id string) (PrinterRecord, bool) {
+	return m.store.Printer(id)
+}
+
+// reloadPrinters restarts the live adapters for ids from their (updated) store
+// records. Called by the store after a camera reference changes.
+func (m *Manager) reloadPrinters(ids []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, id := range ids {
+		if _, running := m.printers[id]; !running {
+			continue
+		}
+		rec, ok := m.store.Printer(id)
+		if !ok {
+			continue
+		}
+		m.waitStopped(m.stopLocked(id))
+		if err := m.startLocked(rec); err != nil {
+			slog.Warn("printer reload after camera change failed", "id", id, "err", err)
+		}
 	}
 }
 
@@ -76,47 +115,58 @@ func (m *Manager) AddPrinter(r PrinterRecord) error {
 	return m.startLocked(r)
 }
 
-// EditPrinter re-initialises an existing printer in place (id is immutable).
-// Blank connection/secret fields keep their stored value, so an edit form need
-// not re-send (or expose) the API key / Bambu credentials to change just a name.
+// EditPrinter re-initialises an existing printer in place (id and kind are
+// immutable). Blank connection/secret fields keep their stored value, so an edit
+// form need not re-send (or expose) the API key / Bambu credentials to change
+// just a name; a blank ui_url or camera clears it. The whole read-modify-write
+// runs under the lock, and the old adapter goroutine is awaited (bounded) before
+// its replacement starts so a stale adapter can't publish over the new state.
 func (m *Manager) EditPrinter(id string, r PrinterRecord) error {
-	r.ID = id
-	if existing, ok := m.store.Printer(id); ok {
-		if r.BaseURL == "" {
-			r.BaseURL = existing.BaseURL
-		}
-		if r.APIKey == "" {
-			r.APIKey = existing.APIKey
-		}
-		if r.IP == "" {
-			r.IP = existing.IP
-		}
-		if r.Serial == "" {
-			r.Serial = existing.Serial
-		}
-		if r.AccessCode == "" {
-			r.AccessCode = existing.AccessCode
-		}
-		if r.Model == "" {
-			r.Model = existing.Model
-		}
-		if r.Macros == nil {
-			r.Macros = existing.Macros
-		}
-	}
-	if err := ValidatePrinter(r); err != nil {
-		return err
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.printers[id]; !ok {
 		return fmt.Errorf("unknown printer %q", id)
 	}
+	existing, ok := m.store.Printer(id)
+	if !ok {
+		return fmt.Errorf("unknown printer %q", id)
+	}
+	r.ID = id
+	if r.Kind == "" {
+		r.Kind = existing.Kind
+	}
+	if r.Kind != existing.Kind {
+		return fmt.Errorf("a printer's kind can't be changed (%s -> %s); remove it and add a new one", existing.Kind, r.Kind)
+	}
+	if r.BaseURL == "" {
+		r.BaseURL = existing.BaseURL
+	}
+	if r.APIKey == "" {
+		r.APIKey = existing.APIKey
+	}
+	if r.IP == "" {
+		r.IP = existing.IP
+	}
+	if r.Serial == "" {
+		r.Serial = existing.Serial
+	}
+	if r.AccessCode == "" {
+		r.AccessCode = existing.AccessCode
+	}
+	if r.Model == "" {
+		r.Model = existing.Model
+	}
+	if r.Macros == nil {
+		r.Macros = existing.Macros
+	}
+	if err := ValidatePrinter(r); err != nil {
+		return err
+	}
 	if err := m.store.UpsertPrinter(r); err != nil {
 		return fmt.Errorf("save printer: %w", err)
 	}
-	m.stopLocked(id)        // old adapter goroutine exits on ctx cancel
-	return m.startLocked(r) // start fresh with the new config
+	m.waitStopped(m.stopLocked(id)) // old adapter goroutine exits on ctx cancel
+	return m.startLocked(r)         // start fresh with the new config
 }
 
 // RemovePrinter stops the adapter, removes it from the store, and tells clients
@@ -151,9 +201,14 @@ func (m *Manager) AddRawAdapter(a adapter.Printer) {
 		return
 	}
 	cctx, cancel := context.WithCancel(m.parentCtx)
+	done := make(chan struct{})
 	m.printers[id] = a
 	m.cancels[id] = cancel
-	m.run("printer:"+id, func(context.Context) { a.Run(cctx) })
+	m.done[id] = done
+	m.run("printer:"+id, func(context.Context) {
+		defer close(done)
+		a.Run(cctx)
+	})
 }
 
 // startLocked builds the adapter for r and launches it on a per-printer child
@@ -180,21 +235,43 @@ func (m *Manager) startLocked(r PrinterRecord) error {
 // ctx and starts its supervised goroutine. Caller holds m.mu.
 func (m *Manager) launchLocked(r PrinterRecord, p adapter.Printer) error {
 	cctx, cancel := context.WithCancel(m.parentCtx)
+	done := make(chan struct{})
 	m.printers[r.ID] = p
 	m.cancels[r.ID] = cancel
-	m.run("printer:"+r.ID, func(context.Context) { p.Run(cctx) })
+	m.done[r.ID] = done
+	m.run("printer:"+r.ID, func(context.Context) {
+		defer close(done)
+		p.Run(cctx)
+	})
 	slog.Info("printer added", "id", r.ID, "kind", r.Kind)
 	return nil
 }
 
 // stopLocked cancels a printer's ctx (its goroutine exits) and drops it from the
-// live maps. Caller holds m.mu.
-func (m *Manager) stopLocked(id string) {
+// live maps. It returns the channel closed when that goroutine has returned (nil
+// if the printer wasn't running). Caller holds m.mu.
+func (m *Manager) stopLocked(id string) <-chan struct{} {
 	if cancel, ok := m.cancels[id]; ok {
 		cancel()
 		delete(m.cancels, id)
 	}
 	delete(m.printers, id)
+	done := m.done[id]
+	delete(m.done, id)
+	return done
+}
+
+// waitStopped waits (bounded by adapterStopWait) for a stopped adapter's
+// goroutine to return. A nil channel is a no-op.
+func (m *Manager) waitStopped(done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(adapterStopWait):
+		slog.Warn("printer adapter did not stop within the wait; starting replacement anyway")
+	}
 }
 
 // ----- hub.CommandHandler (printer portion) -----

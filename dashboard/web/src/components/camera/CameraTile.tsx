@@ -1,24 +1,26 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { useLive } from '@/store/live'
 import { useWs } from '@/ws/WebSocketProvider'
 import { VideoStream } from '@/components/VideoStream'
 import { usePersistentBoolean } from '@/lib/persist'
 import { DeviceMenu, type MenuAction } from '@/components/devices/DeviceMenu'
-import { AddCameraModal } from '@/components/devices/AddCameraModal'
+import { EditCameraModal } from '@/components/devices/EditCameraModal'
 import { CameraSettingsModal } from '@/components/camera/CameraSettingsModal'
 import { ConfirmDialog, useConfirm } from '@/components/ConfirmDialog'
 import { Switch } from '@/components/ui'
 import { IconCheck, IconExpand } from '@/components/icons'
 import { cn, copyText } from '@/lib/utils'
 
-// Overlay pill shared by the small in-tile actions (HQ / RTSP / HTTP).
-const pillCls =
-  'rounded-md bg-white/10 px-1.5 py-1 font-display text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-ink-100 backdrop-blur-sm transition-colors hover:bg-white/20'
+// Square-ish overlay button shared by the in-tile controls (HQ / fullscreen).
+const ctrlCls =
+  'grid h-7 min-w-7 place-items-center rounded-md bg-black/45 px-1.5 text-[11px] font-semibold text-ink-100 transition-colors hover:bg-black/70'
 
-export function CameraTile({ name }: { name: string }) {
+// memo: the wall re-renders on every camera.state delta; a tile only needs to
+// re-render when its own camera (selected below) or its name changes.
+export const CameraTile = memo(function CameraTile({ name }: { name: string }) {
   const cam = useLive((s) => s.cameras[name])
   const { send } = useWs()
-  const [copied, setCopied] = useState<'' | 'rtsp' | 'http'>('')
+  const [copied, setCopied] = useState('')
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [settings, setSettings] = useState<'' | 'full' | 'image'>('')
@@ -27,6 +29,21 @@ export function CameraTile({ name }: { name: string }) {
   // HQ preference is remembered per camera across reloads (localStorage).
   const [hq, setHq] = usePersistentBoolean(`hq:${name}`, false)
   const streamName = hq && cam?.hasHq ? `${name}_hq` : name
+
+  // Two ways to consume the camera elsewhere (both via go2rtc's fan-out, so the
+  // single-upstream-per-camera fix is preserved):
+  //   RTSP — rtsp://host:8554/<name> for VLC/Frigate/ffmpeg (force TCP; go2rtc's
+  //          RTSP server is TCP-only).
+  //   HTTP — go2rtc's player page (auto WebRTC→MSE→MJPEG) for a browser or an OBS
+  //          Browser source, which sidesteps the RTSP/UDP transport problem.
+  const rtspUrl = `rtsp://${location.hostname}:8554/${name}`
+  const httpUrl = `http://${location.hostname}:1984/stream.html?src=${name}`
+  const copy = async (what: string, url: string) => {
+    if (await copyText(url)) {
+      setCopied(what)
+      window.setTimeout(() => setCopied(''), 1600)
+    }
+  }
 
   const toggle = (feature: 'detect' | 'recordings', value: boolean) =>
     send({ type: 'camera.toggle', data: { camera: name, feature, value } })
@@ -38,11 +55,14 @@ export function CameraTile({ name }: { name: string }) {
     else void el.requestFullscreen?.()
   }
 
-  // Management actions are only offered for UI-added (managed) cameras; the
-  // pre-existing Frigate-config cameras stay read-only here.
-  const menuActions: MenuAction[] = []
+  // Edit… is offered for every camera (config-defined ones get a restricted form:
+  // source URL only). Recording/NVR/Delete stay limited to UI-added (managed) cameras.
+  const menuActions: MenuAction[] = [
+    { label: 'Copy RTSP URL', onClick: () => copy('RTSP URL', rtspUrl) },
+    { label: 'Copy player URL', onClick: () => copy('Player URL', httpUrl) },
+    { label: 'Edit…', separator: true, onClick: () => setEditing(true) },
+  ]
   if (cam?.managed) {
-    menuActions.push({ label: 'Edit…', onClick: () => setEditing(true) })
     menuActions.push({ label: 'Recording & detection…', onClick: () => setSettings('full') })
   }
   // Image controls (rotate/flip) are available for every camera, including the
@@ -79,99 +99,66 @@ export function CameraTile({ name }: { name: string }) {
     menuActions.push({
       label: 'Delete…',
       danger: true,
+      separator: true,
       onClick: () => setConfirmDelete(true),
     })
-  }
-
-  // Two ways to consume the camera elsewhere (both via go2rtc's fan-out, so the
-  // single-upstream-per-camera fix is preserved):
-  //   RTSP — rtsp://host:8554/<name> for VLC/Frigate/ffmpeg (force TCP; go2rtc's
-  //          RTSP server is TCP-only).
-  //   HTTP — go2rtc's player page (auto WebRTC→MSE→MJPEG) for a browser or an OBS
-  //          Browser source, which sidesteps the RTSP/UDP transport problem.
-  const rtspUrl = `rtsp://${location.hostname}:8554/${name}`
-  const httpUrl = `http://${location.hostname}:1984/stream.html?src=${name}`
-  const copy = async (kind: 'rtsp' | 'http', url: string) => {
-    if (await copyText(url)) {
-      setCopied(kind)
-      window.setTimeout(() => setCopied(''), 1500)
-    }
   }
 
   return (
     <div
       ref={tileRef}
-      className="group relative aspect-video overflow-hidden rounded-xl border border-ink-800 bg-black shadow-elev transition-colors hover:border-ink-700"
+      className="group relative aspect-video overflow-hidden rounded-lg bg-ink-1000 ring-1 ring-white/[0.06] transition-shadow hover:ring-white/[0.12]"
     >
-      <VideoStream src={streamName} className="h-full w-full bg-black object-contain" />
+      <VideoStream src={streamName} className="h-full w-full bg-ink-1000 object-contain" />
 
-      {/* Top chrome: identity + stream actions. */}
-      <div className="absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 pb-5">
-        <span className="font-display text-[13px] font-semibold tracking-wide text-white drop-shadow">
-          {name}
-        </span>
-        {cam?.promoted && (
-          <span
-            title="Recording in Frigate (NVR)"
-            className="inline-flex items-center gap-1 rounded-md bg-rec/20 px-1.5 py-0.5 font-display text-[9px] font-bold uppercase tracking-[0.1em] text-rose-200 ring-1 ring-inset ring-rec/40"
+      {/* Top-right controls: out of the picture until hovered/focused; always
+          shown on touch devices (no hover there). */}
+      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
+        {cam?.hasHq && (
+          <button
+            onClick={() => setHq((v) => !v)}
+            title="GPU-enhanced stream (denoise / sharpen)"
+            aria-pressed={hq}
+            className={cn(ctrlCls, hq && 'bg-brand-400 text-ink-1000 hover:bg-brand-300')}
           >
-            <span className="h-1.5 w-1.5 animate-blip rounded-full bg-rec" />
-            NVR
-          </span>
+            HQ
+          </button>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
-          {cam?.hasHq && (
-            <button
-              onClick={() => setHq((v) => !v)}
-              title="Toggle the GPU-enhanced stream (denoise / sharpen / upscale)"
-              aria-pressed={hq}
-              className={cn(
-                pillCls,
-                hq && 'bg-brand-500/40 text-brand-100 ring-1 ring-inset ring-brand-400/50 hover:bg-brand-500/50',
-              )}
-            >
-              HQ{hq ? ' ●' : ''}
-            </button>
+        <button onClick={toggleFullscreen} title="Fullscreen" aria-label={`Fullscreen ${name}`} className={ctrlCls}>
+          <IconExpand className="text-[13px]" />
+        </button>
+        {menuActions.length > 0 && <DeviceMenu actions={menuActions} />}
+      </div>
+
+      {/* Bottom scrim: identity on the left, NVR toggles on hover at the right. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-3 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-3 pb-2.5 pt-8">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-white">{name}</span>
+          {cam?.promoted && (
+            <span title="Recording in Frigate (NVR)" className="flex items-center gap-1 text-[11px] text-rose-200/90">
+              <span className="h-1.5 w-1.5 rounded-full bg-rec" />
+              Rec
+            </span>
           )}
-          <button
-            onClick={() => copy('rtsp', rtspUrl)}
-            title={`Copy RTSP URL (VLC/Frigate/ffmpeg, force TCP): ${rtspUrl}`}
-            className={pillCls}
-          >
-            {copied === 'rtsp' ? (
-              <span className="inline-flex items-center gap-1 text-emerald-300">
-                <IconCheck className="text-[11px]" /> Copied
-              </span>
-            ) : (
-              'RTSP'
-            )}
-          </button>
-          <button
-            onClick={() => copy('http', httpUrl)}
-            title={`Copy HTTP player URL (browser / OBS Browser source): ${httpUrl}`}
-            className={pillCls}
-          >
-            {copied === 'http' ? (
-              <span className="inline-flex items-center gap-1 text-emerald-300">
-                <IconCheck className="text-[11px]" /> Copied
-              </span>
-            ) : (
-              'HTTP'
-            )}
-          </button>
-          <button
-            onClick={toggleFullscreen}
-            title="Fullscreen"
-            aria-label={`Fullscreen ${name}`}
-            className="grid h-6 w-6 place-items-center rounded-md bg-white/10 text-ink-100 backdrop-blur-sm transition-colors hover:bg-white/20"
-          >
-            <IconExpand className="text-[13px]" />
-          </button>
-          {menuActions.length > 0 && <DeviceMenu actions={menuActions} />}
+          {hq && cam?.hasHq && <span className="text-[11px] font-medium text-brand-300">HQ</span>}
+          {copied && (
+            <span className="flex items-center gap-1 text-[11px] text-emerald-300 animate-fade">
+              <IconCheck className="text-[11px]" /> {copied} copied
+            </span>
+          )}
+        </div>
+        <div className="pointer-events-auto ml-auto flex items-center gap-3 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
+          <FeatureToggle label="Detect" on={!!cam?.detect} onChange={(v) => toggle('detect', v)} />
+          <FeatureToggle
+            label="Record"
+            on={!!cam?.recordings}
+            disabled={cam ? !cam.recordConfigured : false}
+            onChange={(v) => toggle('recordings', v)}
+          />
         </div>
       </div>
 
-      {editing && <AddCameraModal existingName={name} onClose={() => setEditing(false)} />}
+      {editing && <EditCameraModal name={name} onClose={() => setEditing(false)} />}
       {settings && (
         <CameraSettingsModal name={name} imageOnly={settings === 'image'} onClose={() => setSettings('')} />
       )}
@@ -191,21 +178,9 @@ export function CameraTile({ name }: { name: string }) {
           onClose={() => setConfirmDelete(false)}
         />
       )}
-
-      {/* Bottom chrome: NVR feature toggles. Revealed on hover/focus; always
-          visible on touch devices (no hover there). */}
-      <div className="absolute inset-x-0 bottom-0 flex items-center gap-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2.5 pt-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
-        <FeatureToggle label="Detect" on={!!cam?.detect} onChange={(v) => toggle('detect', v)} />
-        <FeatureToggle
-          label="Record"
-          on={!!cam?.recordings}
-          disabled={cam ? !cam.recordConfigured : false}
-          onChange={(v) => toggle('recordings', v)}
-        />
-      </div>
     </div>
   )
-}
+})
 
 function FeatureToggle({
   label,
@@ -221,9 +196,7 @@ function FeatureToggle({
   return (
     <span className={cn('flex items-center gap-1.5', disabled && 'opacity-50')}>
       <Switch size="sm" on={on} disabled={disabled} onChange={onChange} label={label} />
-      <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-200 drop-shadow">
-        {label}
-      </span>
+      <span className="text-[11px] text-ink-200">{label}</span>
     </span>
   )
 }

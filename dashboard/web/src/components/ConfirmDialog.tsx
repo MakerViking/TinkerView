@@ -31,7 +31,7 @@ export function ConfirmDialog({
       >
         <div className="flex gap-3">
           {danger && (
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rec/12 text-rose-300">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-rec/10 text-rec">
               <IconWarning className="text-[18px]" />
             </div>
           )}

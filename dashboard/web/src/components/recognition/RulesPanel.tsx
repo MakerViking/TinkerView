@@ -14,8 +14,15 @@ const ACTIONS: { value: NotifyRule['action']; label: string }[] = [
 ]
 type MatchMode = 'any' | 'known' | 'unknown' | 'name'
 
+// A whitespace-only match (NAME_BLANK) is the "Specific name…" mode with no name
+// typed yet: the backend trims it to "any", but here it keeps the name field visible
+// (an empty string would read back as "any" and snap the select back).
+const NAME_BLANK = ' '
+
 function matchMode(r: NotifyRule): MatchMode {
-  const m = (r.match ?? '').trim().toLowerCase()
+  const raw = r.match ?? ''
+  if (raw !== '' && raw.trim() === '') return 'name'
+  const m = raw.trim().toLowerCase()
   if (m === '' || m === 'any') return 'any'
   if (m === 'known' || m === 'unknown') return m
   return 'name'
@@ -55,11 +62,19 @@ export function RulesPanel() {
   const save = async () => {
     setError(null)
     setStatus(null)
+    // "Specific name…" with no name typed would be saved as "any" (notify on everything).
+    const blank = (rules ?? []).findIndex((x) => matchMode(x) === 'name' && (x.match ?? '').trim() === '')
+    if (blank >= 0) {
+      setError(
+        `Rule ${blank + 1} is set to "Specific name…" but no name is entered. Enter a name or choose another Recognized option.`,
+      )
+      return
+    }
     try {
       const r = await fetch('/api/notify-rules', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rules ?? []),
+        body: JSON.stringify((rules ?? []).map((r) => ({ ...r, match: r.match?.trim() }))),
       })
       if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`)
       setStatus('Rules saved.')
@@ -81,7 +96,7 @@ export function RulesPanel() {
 
   return (
     <div className="flex max-w-3xl flex-col gap-3">
-      <p className="text-xs leading-relaxed text-ink-500">
+      <p className="max-w-2xl text-sm leading-relaxed text-ink-400">
         When a detection fires, the <span className="text-ink-200">first matching rule wins</span>. Empty
         selectors mean "any". Use it to make recognized people/plates silent and unknown visitors loud. Object
         & name matching needs face/plate recognition enrolled under the other tabs.
@@ -102,14 +117,14 @@ export function RulesPanel() {
           />
         ))}
         {rules.length === 0 && (
-          <div className="rounded-xl border border-dashed border-ink-700 p-6 text-center text-sm text-ink-500">
+          <div className="rounded-lg border border-dashed border-ink-800 p-6 text-center text-sm text-ink-500">
             No rules — every detection sends a normal push. Add a rule to prioritize or silence.
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={add} className="text-brand-300 hover:text-brand-200">
+        <Button variant="ghost" size="sm" onClick={add} className="text-brand-400 hover:text-brand-300">
           <IconPlus className="text-[13px]" />
           Add rule
         </Button>
@@ -118,7 +133,7 @@ export function RulesPanel() {
         </Button>
       </div>
       {error && <div className="text-sm text-rose-300">{error}</div>}
-      {status && <div className="text-sm text-emerald-300">{status}</div>}
+      {status && <div className="text-sm text-ink-300">{status}</div>}
     </div>
   )
 }
@@ -211,9 +226,9 @@ function RuleCard({
             onChange={(e) => {
               const v = e.target.value as MatchMode
               // any → clear; known/unknown → that keyword; name → keep any existing
-              // free-text name, else blank for the user to fill in.
+              // free-text name, else a blank placeholder for the user to fill in.
               if (v === 'any') onPatch({ match: '' })
-              else if (v === 'name') onPatch({ match: mode === 'name' ? r.match : '' })
+              else if (v === 'name') onPatch({ match: mode === 'name' ? r.match : NAME_BLANK })
               else onPatch({ match: v })
             }}
           >
@@ -227,8 +242,8 @@ function RuleCard({
               className={inputCls}
               placeholder="exact name / plate owner"
               aria-label="Recognized name"
-              value={r.match ?? ''}
-              onChange={(e) => onPatch({ match: e.target.value })}
+              value={(r.match ?? '').trim() === '' ? '' : r.match}
+              onChange={(e) => onPatch({ match: e.target.value === '' ? NAME_BLANK : e.target.value })}
             />
           )}
         </Labeled>
@@ -295,7 +310,7 @@ function RuleCard({
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block font-display text-[10px] font-medium uppercase tracking-[0.08em] text-ink-500">
+      <span className="mb-1.5 block text-[13px] font-medium text-ink-200">
         {label}
       </span>
       {children}
