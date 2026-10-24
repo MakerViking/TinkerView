@@ -129,7 +129,7 @@ EOF
 }
 
 # ------------------------------------------------------------ argument parse --
-need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || die "option $1 needs a value (see --help)"; }
+need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "option $1 needs a value (see --help)"; fi; }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -594,7 +594,7 @@ if [ -e /dev/apex_0 ]; then
   CORAL_KIND=pci
 fi
 for d in /sys/bus/usb/devices/*; do
-  [ -r "$d/idVendor" ] && [ -r "$d/idProduct" ] || continue
+  if [ ! -r "$d/idVendor" ] || [ ! -r "$d/idProduct" ]; then continue; fi
   usbid="$(cat "$d/idVendor" 2>/dev/null || true):$(cat "$d/idProduct" 2>/dev/null || true)"
   case "$usbid" in
     1a6e:089a | 18d1:9302)
