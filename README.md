@@ -32,7 +32,7 @@ hardware. It runs on a NAS or a small Linux box on your own network. Part of [Ti
 
 - **A live camera wall** over low-latency WebRTC, with recording state and a per-tile menu (copy the RTSP or player URL, HQ, fullscreen)
 - **GPU "HQ" mode** per tile: denoise, sharpen and upscale a weak camera on an Nvidia encoder, only while you watch it
-- **Printers in the same view**: Klipper/Moonraker, OctoPrint, PrusaLink and Bambu Lab, with temperatures, progress, files, history and pause, resume and cancel
+- **Printers in the same view**: Klipper/Moonraker, PrusaLink, and (in testing) OctoPrint and Bambu Lab, with temperatures, progress, files, history and pause, resume and cancel
 - **Add and edit cameras and printers in the UI**, with no config file required to start
 - **NVR through Frigate**: tiered retention, object detection, face and licence-plate recognition, a recordings browser
 - **Detection hardware picker** and presets for Nvidia, Intel, AMD, Raspberry Pi, Coral and plain CPU
@@ -84,9 +84,11 @@ hardware. It runs on a NAS or a small Linux box on your own network. Part of [Ti
 
 ## Status
 
-**v1.1.0, used daily on one setup.** Since mid-2026 the full stack has run on my own
-Unraid server with an Nvidia GPU: the `nvidia` preset, NVENC "HQ" streams, a mix of RTSP
-and MJPEG cameras, and Moonraker, OctoPrint, PrusaLink and Bambu printers.
+**v1.1.0, public beta, used daily on one setup.** Since mid-2026 the full stack has run on
+my own Unraid server with an Nvidia GPU: the `nvidia` preset, NVENC "HQ" streams, a mix of
+RTSP and MJPEG cameras, and Klipper/Moonraker printers. PrusaLink has been run on a
+tester's Prusa. The OctoPrint and Bambu Lab adapters are built to their APIs and covered
+by unit tests, but have not been run against a real printer yet.
 
 **Proven:**
 
@@ -115,6 +117,7 @@ and MJPEG cameras, and Moonraker, OctoPrint, PrusaLink and Bambu printers.
 - the `intel`, `amd-rocm`, `pi` and `coral` presets
 - SELinux hosts (Fedora, RHEL): `compose.selinux.yml` and the installer's detection are
   written but I have not run them on one
+- the OctoPrint and Bambu Lab printer adapters (no real printer of either kind on hand)
 - rootless Docker and Docker Desktop socket detection in the installer (read, not run)
 - `compose.bridge.yml` on Windows with Docker Desktop (it has run on Linux under podman)
 - the Unraid dashboard-only template and the Compose Manager wrapper, and the CasaOS
